@@ -14,7 +14,7 @@ import {initRuntimeInput,runtimeInputView,settleRuntimeInput,archiveRuntimeInput
 const VERSION='2026-11-26';
 const APPROVAL_TIMEOUT=30*60*1000;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-const stages={implement:'实现阶段',fix:'修改阶段'};
+const stages={implement:'实现阶段',fix:'修改阶段','codex-review-plan':'计划评审阶段（只读沙箱）'};
 const rpcError=(code,message)=>Object.assign(new Error(message),{rpcCode:code});
 
 // Only Codex's explicit answer about this very conversation counts; any other failure stays an ordinary failure.

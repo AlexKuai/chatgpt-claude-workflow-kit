@@ -8,8 +8,9 @@ const hints={chatgpt:'','chatgpt-new':'<需求描述>','chatgpt-use':'<任务ID>
  'chatgpt-plan':'[补充需求或讨论内容]','chatgpt-revise-plan':'[修改重点]',
  'chatgpt-fix':'[问题编号或修改重点]','claude-review-plan':'[关注点]',
  'claude-review-result':'[关注点或验证要求]','chatgpt-implement':'','chatgpt-resume':'',
- 'chatgpt-status':'','chatgpt-doctor':'','chatgpt-unlock':'','claude-review':''};
-test('14 Chinese command menus agree with help and README on required and optional arguments',()=>{
+ 'chatgpt-status':'','chatgpt-doctor':'','chatgpt-unlock':'','claude-review':'',
+ 'claude-new':'<需求描述>','claude-plan':'[补充需求或讨论内容]','chatgpt-review-plan':'[关注点]','claude-revise-plan':'[修改重点]'};
+test('18 Chinese command menus agree with help and README on required and optional arguments',()=>{
  const skills=path.join(root,'.claude','skills');
  assert.deepEqual(fs.readdirSync(skills).sort(),Object.keys(hints).sort());
  for(const [name,hint] of Object.entries(hints)){
@@ -23,7 +24,7 @@ test('14 Chinese command menus agree with help and README on required and option
  for(const relative of ['README.zh-CN.md','.claude/skills/chatgpt/references/commands.md']){
   const text=fs.readFileSync(path.join(root,relative),'utf8');
   const usages=[...text.matchAll(/^\| `\/(\S+)([^`]*)` \|/gm)].map(m=>[m[1],m[2].trim()]);
-  assert.equal(usages.length,14,relative);
+  assert.equal(usages.length,18,relative);
   assert.deepEqual(Object.fromEntries(usages),hints,relative);
   assert.ok(text.includes('尖括号表示必填，方括号表示可选，实际输入时不包含括号'),relative);
  }

@@ -7,6 +7,8 @@ Codex runs in a detached worker that outlives the tool call. Pass `timeout: 6000
 - `awaiting-approval`、`awaiting-user-input`：按下文处理。
 - `resume` 遇到进行中的执行时只继续等待，不启动新 turn。
 
+`codex-review-plan`（/chatgpt-review-plan）与规划一样在只读沙箱中运行：权限框标注“计划评审阶段”，文件修改申请一律拒绝；它不改写计划，只保存评审。
+
 Run each runner command alone, without pipes or filters; read the returned file paths with Read for details. Ordinary chat outside an active clarification round does not automatically route to Codex.
 
 ## Codex 权限请求

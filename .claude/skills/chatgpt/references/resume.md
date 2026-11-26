@@ -9,9 +9,11 @@ Inspect `selectionRequired` first (see [runner.md](runner.md)). Once bound, chec
 1. `threadLost` is present → show the 会话恢复卡片 below before anything else.
 2. An existing run → resume attaches to it without a new turn or changed sandbox/approval route; continue with [codex-run.md](codex-run.md) (pending approvals and runtime questions are re-presented).
 3. `resumeOwner: claude` or `reviewSession` exists → read [review.md](review.md) and continue that review inline with its saved kind and ticket. The returned `reviewSession.stale` flag requires reinspection before continuing; historical answers are not automatically current decisions. Restore only missing review answers; if all are saved, finish Claude's report or retry its saved draft. Do not send review questions to Codex, call planning `answer`/`clarify`, or request a Codex recap on this branch. Completion of the review does not authorize implementing fixes.
-4. `pendingQuestions` (`resumeOwner: codex-questions`) → returned without a Codex call; continue the question loop in [planning.md](planning.md); saved full answers retry delivery.
-5. 首次规划明确失败且没有 UUID → 按下面的首次失败恢复处理，并继续正常问答（[planning.md](planning.md)）；返回已完成计划时展示计划并停在待评审，不直接实现。
-6. Otherwise resume requests a read-only Codex recap on the saved explicit UUID, listing completed work and next steps. It does not replace the saved plan or `delivery`.
+4. `resumeOwner: claude-plan` or `authoring` exists → read [claude-planning.md](claude-planning.md) and continue that Claude planning inline with its saved ticket: restore missing answers, then write the plan, or retry `plan-save` without plan/contract when `authoring.draft` exists. `authoring.stale` requires a new `plan-start`. No Codex call on this branch.
+5. `pendingQuestions` (`resumeOwner: codex-questions`) → returned without a Codex call; continue the question loop in [planning.md](planning.md); saved full answers retry delivery.
+6. 由 Claude 规划且尚无 Codex 会话的任务，resume 只返回状态和说明，不调用 Codex。
+7. 首次规划明确失败且没有 UUID → 按下面的首次失败恢复处理，并继续正常问答（[planning.md](planning.md)）；返回已完成计划时展示计划并停在待评审，不直接实现。
+8. Otherwise resume requests a read-only Codex recap on the saved explicit UUID, listing completed work and next steps. It does not replace the saved plan or `delivery`.
 
 A NEW recap turn started by `resume` is **read-only**, including in a conversation previously allowed to write. The runner never modifies Claude transcript files.
 

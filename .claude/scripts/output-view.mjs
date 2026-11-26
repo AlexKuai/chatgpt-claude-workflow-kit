@@ -46,6 +46,8 @@ export function compactView(result){
   if(Array.isArray(out.runHistory))out.runHistory={count:out.runHistory.length,
     recent:out.runHistory.slice(-3).map(({id,action,status,startedAt,finishedAt,error})=>({id,action,status,startedAt,finishedAt,...(error?{error}:{})}))};
   if(out.reviewSession?.draft){const {text,...draft}=out.reviewSession.draft;out.reviewSession={...out.reviewSession,draft:{saved:true,characters:text?.length??0,...draft}};}
+  if(out.authoring?.draft){const {plan,contract,...draft}=out.authoring.draft;out.authoring={...out.authoring,draft:{saved:true,characters:plan?.length??0,...draft}};}
+  if(Array.isArray(out.authoringHistory))out.authoringHistory={count:out.authoringHistory.length};
   if(stateFile)out.requirements=cut(out.requirements,REQUIREMENTS_LIMIT,stateFile);
   const resultFile=result.lastRun?.result;
   if(typeof out.result==='string'&&resultFile){
