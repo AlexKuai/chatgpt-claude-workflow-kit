@@ -1,3 +1,45 @@
+# 验证记录：Claude 额度与评审稳定性
+
+日期：2026-11-26。基线为 GitHub 提交 9228fc0（283/283）。未重新打包。
+
+完整回归：**290/290，0 失败、0 取消、0 跳过**（Windows、Node.js 22.22.0）。在此之前的一次完整回归为 289/290：`a thread that never started a turn is not saved, so first planning can be retried` 一项失败，单独运行 3 次、整个文件运行 2 次、再跑完整回归 1 次均通过，属于上文记录过的负载下时序失败，与本轮改动无调用关系。所有脚本通过 `node --check`。新增 7 项测试，已有测试中只把文档断言改为指向拆分后的文件。
+
+## 本轮改动与对应测试
+
+| 改动 | 测试 |
+| --- | --- |
+| 共享规则按动作拆分，每个入口只链接所需文件；删除 workflow.md | entrypoints：各入口链接字节上限（帮助/状态类 ≤20 000，其余 ≤36 000），实现和规划必须链接评审选择卡片，调用 Codex 的入口必须链接 codex-run.md |
+| `snapshot.excludeFiles` | file-snapshot：任意层级同名文件、精确路径、名称不做前缀匹配、非法值拒绝，未配置时 rules 不含该字段；non-git-workflow：评审期间写入被排除文件后 review-save 成功，真实文件变化仍使批准过期 |
+| `/chatgpt-plan`、`/chatgpt-revise-plan` 禁止模型自行调用 | entrypoints：手动入口集合 |
+| 调查任务检测到文件变化时警告 | goal-contract：警告列出变化文件，评估仍为 needs-review |
+| settings.local.json 中只新增本包 approve-codex 规则不使审批失效 | approval-bridge：执行中写入该规则后审批仍被接受；`Bash(node:*)`、`Bash(*)`、`--request-file *`、带分隔符的规则、`Bash(* #chatgpt-workflow.mjs approve-codex)` 这类前置通配符规则、其他项目路径的规则及其他设置仍计为改动（规则须与本项目 runner 路径精确匹配，安全审查后由子串检查收紧为锚定匹配）；原有“`Bash(*)` 使审批失效”测试保持通过 |
+| 成功后删除已消费的 inbox 请求文件 | permission-gate：成功删除；失败保留；`new` 保留；inbox 外的文件不动 |
+
+每个入口需要 Claude 读取的规则文档（字节，不含 SKILL.md 本身）：
+
+| 入口 | 改动前 | 改动后 |
+| --- | --- | --- |
+| /chatgpt-status | 64 874 | 16 517 |
+| /chatgpt-doctor、/chatgpt-use、/chatgpt-unlock | 58 566 | 10 002 |
+| /chatgpt | 37 480 | 19 627 |
+| /chatgpt-new、/chatgpt-revise-plan | 58 566 | 28 741 |
+| /chatgpt-plan | 58 566 | 33 062 |
+| /chatgpt-implement | 58 566 | 28 995 |
+| /chatgpt-fix | 58 566 | 24 674 |
+| /chatgpt-resume | 58 566 | 24 046（按返回状态再读 planning/review 等） |
+| /claude-review-plan、/claude-review-result | 47 551 | 31 622 |
+
+文档拆分后逐句比对：旧 workflow.md 和 runner.md 中未逐字保留的句子已逐条核对，均为合并去重或改写，没有删除规则。
+
+## 未验证
+
+- 拆分后的文档在真实 Claude Code 中是否按“按需阅读”执行（只能静态检查，模型可能多读）。
+- `settings.local.json` 中“始终允许”实际写入的规则文字（依据推断为包含 runner 路径和 approve-codex 的 Bash 规则；若 Claude Code 写的是更宽的规则，仍按改动处理，不会放宽）。
+- clientInfo 名称改为 `chatgpt-claude-workflow-kit` 后，与真实 Codex app-server 的联调。
+- 以往各轮列出的界面级未验证项仍然有效：权限框 Yes/No 附反馈、问题卡片、Playwright → 修复 → 复测、allowed-tools 实际匹配。
+
+---
+
 # 验证记录：任务文件被占用（EPERM）
 
 日期：2026-11-24。基线 255/255，改动前备份为同级目录 chatgpt-claude-browser-kit-new.bak-20261124-2。未重新打包。

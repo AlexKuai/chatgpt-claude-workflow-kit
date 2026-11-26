@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {kit,command} from './kit-fixture.mjs';
+import {localSettingsDigest} from '../.claude/scripts/control-store.mjs';
 const id=s=>s.approval.id;
 
 test('Manual: a command request waits for the native prompt; approval is once by default',async t=>{
@@ -155,4 +157,26 @@ test('a permission choice saved by Claude Code keeps the review valid but still 
   assert.match(JSON.stringify(done.delivery.approvals.declined),/始终允许/);
   const q=kit(t);await q.plan();const k=await q.call({action:'review-start',kind:'plan'});fs.writeFileSync(path.join(q.root,'.claude/settings.json'),'{}');
   await assert.rejects(q.call({action:'review-save',kind:'plan',ticket:k.ticket,text:'通过'}),/stale[^]*settings.json/);
+});
+test('an "always allow" rule for the kit approval command keeps later approvals in the run working',async t=>{
+  const p=kit(t);await p.approved();
+  const rule=`Bash(node "${p.runner.replaceAll('\\','/')}" approve-codex:*)`;
+  const s=await p.call({action:'implement'},{steps:[{write:'.claude/settings.local.json',content:JSON.stringify({permissions:{allow:[rule]}})},command()]});
+  const done=await p.userApproves(s.approveCommand);
+  assert.deepEqual(p.responses(),[{decision:'accept'}]);assert.deepEqual(done.delivery.approvals.kitFilesChanged,[]);
+});
+test('only kit approve-codex rules are ignored in the local settings fingerprint',()=>{
+  const d=v=>localSettingsDigest(Buffer.from(typeof v==='string'?v:JSON.stringify(v)));
+  const runner=fileURLToPath(new URL('../.claude/scripts/chatgpt-workflow.mjs',import.meta.url)),slash=runner.replaceAll('\\','/');
+  const kitRule=`Bash(node "${slash}" approve-codex:*)`;
+  assert.equal(d({permissions:{allow:[kitRule]}}),null,'a file with only the harmless rule equals an absent file');
+  assert.equal(d({permissions:{allow:['Bash(ls)',kitRule]}}),d('{\n  "permissions": {"allow": ["Bash(ls)"]}\n}'));
+  for(const harmless of [`PowerShell(node "${runner}" approve-codex *)`,`Bash(node "${slash}" approve-codex 0b7c1e2a-1111-4111-8111-111111111111 abcdef0123456789 --scope run --gate toolu_1.abc)`])
+    assert.equal(d({permissions:{allow:[harmless]}}),null,harmless);
+  for(const risky of ['Bash(node:*)','Bash(*)',`Bash(node "${slash}" --request-file *)`,`${kitRule}; Bash(*)`,
+    'Bash(* #chatgpt-workflow.mjs approve-codex)','Bash(node "D:/other/.claude/scripts/chatgpt-workflow.mjs" approve-codex:*)',
+    `Bash(node "${slash}" approve-codex *:*)`,`Bash(* node "${slash}" approve-codex:*)`,`Bash(node "${slash}" approve-codex:* *)`])
+    assert.notEqual(d({permissions:{allow:[risky]}}),null,risky);
+  assert.notEqual(d({permissions:{allow:[kitRule]},hooks:{}}),null,'other settings still count');
+  assert.ok(d('not json'));
 });

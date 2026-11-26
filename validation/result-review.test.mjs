@@ -172,8 +172,8 @@ test('shortening keeps unfinished and failed items ahead of finished ones',()=>{
 });
 test('the skills describe every result-review state, and only current as valid',()=>{
  const skill=p=>fs.readFileSync(new URL(`../.claude/skills/${p}`,import.meta.url),'utf8');
- for(const state of ['current','none','stale','invalid','in-progress','unknown','unavailable'])for(const file of ['chatgpt/references/runner.md','chatgpt/references/status.md','chatgpt-plan/SKILL.md'])assert.ok(skill(file).includes(`\`${state}\``),`${file}: ${state}`);
- for(const file of ['chatgpt/SKILL.md','chatgpt-status/SKILL.md','chatgpt/references/status.md','chatgpt/references/runner.md'])assert.match(skill(file),/只有 `current`/);
- const card=skill('chatgpt/references/workflow.md');for(const text of ['先完成评审（推荐）','放弃这次评审，继续规划','先处理扫描问题（推荐）','resultReviewNote'])assert.ok(card.includes(text),text);
+ for(const state of ['current','none','stale','invalid','in-progress','unknown','unavailable'])for(const file of ['chatgpt/references/review-choice.md','chatgpt/references/status.md','chatgpt-plan/SKILL.md'])assert.ok(skill(file).includes(`\`${state}\``),`${file}: ${state}`);
+ for(const file of ['chatgpt/SKILL.md','chatgpt-status/SKILL.md','chatgpt/references/status.md','chatgpt/references/review-choice.md'])assert.match(skill(file),/只有 `current`/);
+ const card=skill('chatgpt/references/review-choice.md');for(const text of ['先完成评审（推荐）','放弃这次评审，继续规划','先处理扫描问题（推荐）','resultReviewNote'])assert.ok(card.includes(text),text);
  for(const file of ['chatgpt/references/runner.md','chatgpt/references/review.md'])assert.match(skill(file),/fullRecord/);
 });

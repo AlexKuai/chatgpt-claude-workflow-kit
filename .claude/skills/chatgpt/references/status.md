@@ -31,7 +31,7 @@
 | planning / planning-error / implementing / fixing | 规划中、规划失败、实现中、修改中；结合最后运行状态解释，不把中断当完成 |
 | 其他或缺失阶段 | 如实展示原始阶段并注明无法判定；建议先检查记录，不猜测已批准或已通过 |
 
-展示 `resultReview` 和 `resultReviewNote`：`current` 有效、`stale` 已过期、`invalid` 报告不可信、`in-progress` 未完成、`unknown` 无法判断、`none` 未评审、`unavailable` 不适用。**只有 `current` 才能说成果评审有效**，不能因为有历史报告就说有效。`delivery.shortened` 出现时说明内容已截短，并给出完整文件路径。
+展示 `planReview` 和 `planReviewNote`：`current` 已评审、`none` 未评审、`stale` 评审后文件有变化、`in-progress` 评审未完成、`unavailable` 现在不能批准（按说明处理）。展示 `resultReview` 和 `resultReviewNote`：`current` 有效、`stale` 已过期、`invalid` 报告不可信、`in-progress` 未完成、`unknown` 无法判断、`none` 未评审、`unavailable` 不适用。**只有 `current` 才能说成果评审有效**，不能因为有历史报告就说有效。`delivery.shortened` 出现时说明内容已截短，并给出完整文件路径。
 
 必要时只读查看返回路径中的计划和评审以决定建议。状态显示不替代 runner 的有效性门禁；只有脚本执行时校验通过才能进入依赖阶段。部分评审不是验收完成；包含未验证范围时必须在状态说明中明确指出。
 

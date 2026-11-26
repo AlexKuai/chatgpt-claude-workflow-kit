@@ -82,7 +82,7 @@ export class AppServerClient{
     });
   }
   async initialize(version){
-    await this.request('initialize',{clientInfo:{name:'chatgpt-claude-browser-kit',title:'ChatGPT Claude Browser Kit',version},
+    await this.request('initialize',{clientInfo:{name:'chatgpt-claude-workflow-kit',title:'ChatGPT Claude Workflow Kit',version},
       capabilities:{experimentalApi:false,requestAttestation:false,optOutNotificationMethods:['item/agentMessage/delta','item/reasoning/summaryTextDelta','item/reasoning/summaryPartAdded','item/reasoning/textDelta','item/commandExecution/outputDelta']}},60000);
     this.send({method:'initialized',params:{}});
   }

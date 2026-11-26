@@ -34,7 +34,7 @@ test('public documentation supports ordinary folders, bounded backups and explic
   const s=read(file);assert.ok(!/requires installation at a Git repository root|适用于 Git 项目|目标 Git 项目根目录/.test(s),file);assert.match(s,/快照/);
  }
  assert.match(read('README.zh-CN.md'),/1 MiB/);assert.match(read('README.zh-CN.md'),/32 MiB/);
- assert.match(read('.claude/skills/chatgpt/references/workflow.md'),/首次规划明确失败/);
+ assert.match(read('.claude/skills/chatgpt/references/resume.md'),/首次规划明确失败/);
  assert.match(read('.claude/skills/chatgpt/references/status.md'),/Git 不可用是正常状态/);
- assert.match(read('.claude/skills/chatgpt/references/runner.md'),/--skip-git-repo-check/);
+ assert.match(read('.claude/skills/chatgpt/references/internals.md'),/--skip-git-repo-check/);
 });

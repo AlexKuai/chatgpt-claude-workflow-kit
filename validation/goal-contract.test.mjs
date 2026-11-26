@@ -68,6 +68,13 @@ test('report task can complete without source changes; partial and blocked repor
  assert.equal(f.delivery.runId,f.lastRun.id);assert.notEqual(f.delivery.beforeSnapshot,s.delivery.beforeSnapshot);
 });
 
+test('report task that changes project files is flagged for review without failing the run',async t=>{
+ const p=fixture(t);await prepared(p,{...contract,kind:'investigate',allowedChanges:[],deliverables:[{id:'D1',description:'原因报告'}]});
+ const s=await p.run({action:'implement'},result,{FAKE_WRITE_APP:'调查时误改'});
+ assert.equal(s.delivery.changesDetected,true);assert.equal(s.delivery.assessment,'needs-review');
+ assert.match(s.delivery.warnings.join(' '),/调查报告任务不授权修改项目文件[\s\S]*app\.txt/);
+});
+
 test('invalid execution output is retained for review and resume never repeats implementation',async t=>{
  const p=fixture(t);await prepared(p);
  for(const bad of ['', '仅完成原因报告', {...result,deliverables:[]}, {...result,deliverables:[...result.deliverables,...result.deliverables]}, {...result,verification:[]}, {...result,unfinished:['尚未修复']}]){

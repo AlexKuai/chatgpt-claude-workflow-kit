@@ -158,8 +158,8 @@ test('the runner process prints the review state and puts the notice first',asyn
 });
 test('skills ask with a card, never treat silence as a choice and stop after a chosen review',()=>{
  const doc=f=>fs.readFileSync(fileURLToPath(new URL('../.claude/skills/'+f,import.meta.url)),'utf8');
- const flow=doc('chatgpt/references/workflow.md');
+ const flow=doc('chatgpt/references/review-choice.md');
  for(const text of ['评审选择卡片','先评审计划（推荐）','跳过评审，直接实现','先评审成果（推荐）','跳过评审，继续规划','超时都不算选择','然后停下','模型不得自行决定','不沿用以前命令中的选择'])assert.ok(flow.includes(text),text);
  assert.match(doc('chatgpt-implement/SKILL.md'),/planReview[^]*评审选择卡片/);assert.match(doc('chatgpt-plan/SKILL.md'),/resultReview[^]*调用 `plan` 之前/);
- for(const name of ['planReview','resultReview','withoutReview','reviewNotice'])assert.ok(doc('chatgpt/references/runner.md').includes(name),name);
+ for(const name of ['planReview','resultReview','withoutReview','reviewNotice'])assert.ok(doc('chatgpt/references/review-choice.md').includes(name),name);
 });
