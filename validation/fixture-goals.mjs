@@ -1,0 +1,2 @@
+export const fixtureContract={kind:'modify',deliverables:[{id:'D1',description:'完成计划中的项目交付物'}],allowedChanges:['计划范围内的项目文件'],excludedChanges:['提交和部署'],acceptanceCriteria:['满足计划验收要求']};
+export const fixtureResult={outcome:'partial',deliverables:[{id:'D1',status:'partial',summary:'离线夹具未实现真实项目',evidence:[]}],verification:[{description:'真实运行验证',status:'blocked',evidence:['离线协议夹具，不是真实 Codex 验证']}],unfinished:['需要真实实现和验收'],changeExplanation:'协议测试不修改业务文件',report:'# 离线执行夹具\n未进行真实模型或浏览器验收。'};
