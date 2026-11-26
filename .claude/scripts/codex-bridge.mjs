@@ -11,7 +11,7 @@ import {atomicJson,readJson,controlDir,runDir,listRuns,runFinished,pendingItems,
   withPending,interactionLock,ownership,requireOwner} from './control-store.mjs';
 import {initRuntimeInput,runtimeInputView,settleRuntimeInput,archiveRuntimeInputs} from './runtime-questions.mjs';
 
-const VERSION='2026-11-23';
+const VERSION='2026-11-26';
 const APPROVAL_TIMEOUT=30*60*1000;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const stages={implement:'实现阶段',fix:'修改阶段'};

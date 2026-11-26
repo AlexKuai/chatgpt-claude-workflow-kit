@@ -18,16 +18,22 @@ export function snapshotRules(root){
   const current=path.join(root,'.claude/chatgpt-workflow.json'),legacy=path.join(root,'.claude/astra-workflow.json');
   const file=fs.existsSync(current)?current:legacy;
   const config=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'')):{};
-  const exclude=config.snapshot?.excludeDirectories??defaults;
-  if(!Array.isArray(exclude)||exclude.some(p=>typeof p!=='string'||!p||p.includes('\\')||p.startsWith('/')||p.includes(':')||p.split('/').some(s=>!s||s==='.'||s==='..')||/[?*\[\]]/.test(p)))
-    throw Error('snapshot.excludeDirectories 必须为相对目录路径或单目录名称数组；使用 /，不支持通配符或 ..。');
-  return {format:'files-v1',fixedExcludedNames:fixed,fixedExcludedFiles:fixedFiles,excludeDirectories:[...new Set(exclude)].sort(compare),projectOutputs:exclude===defaults?projectOutputs:[],textBackupMaxBytes:perFile,newBackupMaxBytes:perSnapshot};
+  const exclude=config.snapshot?.excludeDirectories??defaults,files=config.snapshot?.excludeFiles;
+  const invalid=list=>!Array.isArray(list)||list.some(p=>typeof p!=='string'||!p||p.includes('\\')||p.startsWith('/')||p.includes(':')||p.split('/').some(s=>!s||s==='.'||s==='..')||/[?*\[\]]/.test(p));
+  if(invalid(exclude))throw Error('snapshot.excludeDirectories 必须为相对目录路径或单目录名称数组；使用 /，不支持通配符或 ..。');
+  if(files!==undefined&&invalid(files))throw Error('snapshot.excludeFiles 必须为相对文件路径或单文件名称数组；使用 /，不支持通配符或 ..。');
+  // Present only when configured, so projects without it keep the rules hash their saved reviews were made with.
+  return {format:'files-v1',fixedExcludedNames:fixed,fixedExcludedFiles:fixedFiles,excludeDirectories:[...new Set(exclude)].sort(compare),
+    ...(files===undefined?{}:{excludeFiles:[...new Set(files)].sort(compare)}),projectOutputs:exclude===defaults?projectOutputs:[],textBackupMaxBytes:perFile,newBackupMaxBytes:perSnapshot};
 }
+// Windows paths are case-insensitive; elsewhere names must match exactly.
+const fold=p=>process.platform==='win32'?p.toLowerCase():p;
 const isBeside=(name,pattern)=>pattern.startsWith('*')?name.toLowerCase().endsWith(pattern.slice(1)):name===pattern;
 function excluded(relative,directory,rules,siblings){
   const parts=relative.split('/');
   if(parts.some(p=>fixed.includes(p.toLowerCase())))return true;
-  if(!directory)return fixedFiles.includes(process.platform==='win32'?relative.toLowerCase():relative);
+  if(!directory)return fixedFiles.includes(fold(relative))
+    ||(rules.excludeFiles||[]).some(p=>p.includes('/')?fold(relative)===fold(p):fold(parts.at(-1))===fold(p));
   return rules.excludeDirectories.some(p=>p.includes('/')?relative===p:parts.at(-1)===p)
     ||rules.projectOutputs.some(o=>o.directories.includes(parts.at(-1))&&siblings.some(s=>o.beside.some(b=>isBeside(s,b))));
 }

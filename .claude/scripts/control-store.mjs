@@ -131,10 +131,33 @@ export const recordDigest=r=>sha(JSON.stringify([r.id,r.runId,r.method,r.task,r.
 
 // ---- integrity of the code and settings that implement the gate ----
 const gateFiles=['permission-gate.mjs','control-store.mjs','codex-bridge.mjs','runtime-questions.mjs','app-server-client.mjs','chatgpt-workflow.mjs','output-view.mjs','goal-contract.mjs','file-snapshot.mjs'];
+// "Always allow" on the approval dialog saves an allow rule for the kit's own approve-codex command. Such a rule
+// changes nothing: the hook still asks and the runner still needs the hook's gate code. Every other change counts.
+// Only the exact forms a saved choice can take for this installed runner: a prefix rule, or the full command shown.
+// Any other wildcard or text could match unrelated commands, so it counts as a change.
+const escapeRegex=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+const kitRunner=path.join(scriptsDir,'chatgpt-workflow.mjs');
+const runnerSpellings=[...new Set([kitRunner,kitRunner.replaceAll('\\','/')])].map(escapeRegex).join('|');
+const HARMLESS_RULE=new RegExp(`^(?:Bash|PowerShell)\\(node "(?:${runnerSpellings})" approve-codex(?::\\*| \\*| [A-Za-z0-9_-]{1,128} [A-Za-z0-9_-]{1,128}(?: --scope run)?(?: --gate [A-Za-z0-9_.-]{1,300})?)\\)$`,process.platform==='win32'?'i':'');
+const harmlessRule=r=>typeof r==='string'&&HARMLESS_RULE.test(r);
+// Parsed content is compared, not bytes, so the file Claude Code rewrites or creates for such a rule matches the
+// earlier state. A file holding nothing else counts as absent. Unparseable content is compared byte for byte.
+export function localSettingsDigest(buffer){
+  let value;try{value=JSON.parse(buffer.toString('utf8').replace(/^﻿/,''));}catch{return sha(buffer);}
+  if(!value||typeof value!=='object'||Array.isArray(value))return sha(buffer);
+  const normalized={...value},allow=value.permissions?.allow;
+  if(value.permissions&&typeof value.permissions==='object'&&Array.isArray(allow)){
+    const permissions={...value.permissions},rest=allow.filter(r=>!harmlessRule(r));
+    if(rest.length)permissions.allow=rest;else delete permissions.allow;
+    if(Object.keys(permissions).length)normalized.permissions=permissions;else delete normalized.permissions;
+  }
+  return Object.keys(normalized).length?sha(JSON.stringify(normalized)):null;
+}
 export function kitFingerprint(root){
-  const out={},add=f=>{out[f]=fs.existsSync(f)?sha(whenFree(()=>fs.readFileSync(f))):null;};
+  const out={},add=(f,digest=sha)=>{out[f]=fs.existsSync(f)?digest(whenFree(()=>fs.readFileSync(f))):null;}; // null = absent
   for(const name of gateFiles)add(path.join(scriptsDir,name));
-  for(const name of ['chatgpt-workflow.json','settings.json','settings.local.json'])add(path.join(root,'.claude',name));
+  for(const name of ['chatgpt-workflow.json','settings.json'])add(path.join(root,'.claude',name));
+  add(path.join(root,'.claude','settings.local.json'),localSettingsDigest);
   const skills=path.join(root,'.claude','skills');
   if(fs.existsSync(skills))for(const d of fs.readdirSync(skills).filter(n=>/^(chatgpt|claude-review)(-|$)/.test(n)).sort())add(path.join(skills,d,'SKILL.md'));
   return out;

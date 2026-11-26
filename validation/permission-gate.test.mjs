@@ -106,3 +106,14 @@ test('malformed hook input is silent rather than permissive',async t=>{
   const p=setup(t);const gate=path.join(p.root,'.claude/scripts/permission-gate.mjs');
   for(const input of ['','not json','{}','{"tool_name":"Bash"}'])assert.equal((await p.exec([gate],{input})).out,'');
 });
+test('a consumed inbox request is removed after success; new requests and failures are kept for replay',async t=>{
+  const p=setup(t);await p.plan();
+  const ok=p.file({action:'status'},'request-status.json');let r=await p.exec([p.runner,'--request-file',ok]);
+  assert.equal(r.status,0,r.err);assert.equal(fs.existsSync(ok),false);
+  const failed=p.file({action:'review-save',kind:'plan',ticket:'stale',text:'x'},'request-failed.json');r=await p.exec([p.runner,'--request-file',failed]);
+  assert.notEqual(r.status,0);assert.equal(fs.existsSync(failed),true);
+  const created=p.file({action:'new',requestId:'11111111-1111-4111-8111-111111111111',suggestedTask:'second',text:'第二个任务'},'request-new.json');
+  r=await p.exec([p.runner,'--request-file',created]);assert.equal(r.status,0,r.err);assert.equal(fs.existsSync(created),true);
+  const outside=path.join(p.root,'request-outside.json');fs.writeFileSync(outside,JSON.stringify({sessionId:SESSION,action:'status'}));
+  r=await p.exec([p.runner,'--request-file',outside]);assert.equal(r.status,0,r.err);assert.equal(fs.existsSync(outside),true);
+});

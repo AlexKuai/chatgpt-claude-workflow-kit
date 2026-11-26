@@ -307,6 +307,11 @@ async function runCodex(root,dir,state,request,options,persist) {
     }catch(e){state.delivery.assessment='invalid-result';state.delivery.warnings.push(e.message);}
     if(state.plan.contract.kind!=='investigate'&&state.delivery.changesDetected===false)
       state.delivery.warnings.push('未检测到本次交付物修改，需要核对；请检查解释及验证依据，不能仅凭正常退出认定完成。');
+    // A report-only goal authorizes no project-file edits; the sandbox still allows them, so say so when it happened.
+    if(state.plan.contract.kind==='investigate'&&state.delivery.changesDetected===true){
+      const list=state.delivery.changes.slice(0,20).map(c=>c.path).join('、');
+      state.delivery.warnings.push(`调查报告任务不授权修改项目文件，但本次执行检测到 ${state.delivery.changes.length} 项变化：${list}${state.delivery.changes.length>20?' 等':''}。请在成果评审中核对这些变化是否应保留。`);
+    }
     state.delivery.report=path.join(dir,`${runId}.result.md`);
     artifact(dir,`${runId}.delivery.json`,JSON.stringify(state.delivery,null,2));
   }
@@ -906,14 +911,23 @@ async function main() {
     if(args.length<3||rest.length)fail('用法：approve-codex <审批ID> <摘要> [--scope run]');
     print(await waitRun(acceptDecision(root,{id:args[1],digest:args[2],scope,gate})));return;
   }
-  let request,full=false;
+  let request,full=false,consumed=null;
   if(args[0]==='--stdin'){let input='';for await(const chunk of process.stdin)input+=chunk;request=JSON.parse(input.replace(/^\uFEFF/,''));}
-  else if(args[0]==='--request-file'&&args.length===2)request=json(path.resolve(args[1]));
+  else if(args[0]==='--request-file'&&args.length===2){request=json(path.resolve(args[1]));consumed=inboxFile(root,args[1],request);}
   else if(args.length===3&&args[0]==='decline-codex')request={action:'approval-decline',id:args[1],sessionId:args[2]};
   else if(args.length===2&&['wait','cancel','status'].includes(args[0]))request={action:args[0],sessionId:args[1]};
   else if(args.length===3&&args[0]==='status'&&args[2]==='--full'){request={action:'status',sessionId:args[1]};full=true;}
   else if(args.length===1&&ACTIONS.includes(args[0]))request={action:args[0]};
   else fail('Invalid command. Use --help.');
-  print(await dispatch(root,request),full);
+  const result=await dispatch(root,request);
+  // The task records keep what matters; a consumed request file would only pile up requirement and review text.
+  if(consumed)try{fs.rmSync(consumed,{force:true});}catch{/* harmless leftover */}
+  print(result,full);
+}
+// Only the kit's own inbox files are removed, and never a `new` request: its retry replays the saved requestId.
+export function inboxFile(root,file,request){
+  const resolved=path.resolve(file),fold=p=>process.platform==='win32'?p.toLowerCase():p;
+  const inInbox=['.chatgpt-workflow','.astra-workflow'].some(n=>fold(path.dirname(resolved))===fold(path.join(root,n,'inbox')));
+  return inInbox&&/^request-[A-Za-z0-9_-]+\.json$/.test(path.basename(resolved))&&request?.action!=='new'?resolved:null;
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url))main().catch(e=>{console.error(`Workflow error: ${e.message}`);process.exitCode=1;});

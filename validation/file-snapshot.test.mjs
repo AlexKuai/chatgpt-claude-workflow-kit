@@ -44,3 +44,16 @@ test('the local Claude permission file is never review evidence; shared settings
   const b=p.snap();p.write('sub/.claude/settings.local.json','{}');p.write('settings.local.json','{}');assert.ok(diffSnapshots(b,p.snap()).some(x=>x.path==='sub/.claude/settings.local.json'));
   assert.ok(diffSnapshots(b,p.snap()).some(x=>x.path==='settings.local.json'));
 });
+test('configured file exclusions cover test data written during browser review; unset keeps the old rules hash',t=>{
+  const p=fixture(t);p.write('a.txt','a');const plain=p.snap();
+  assert.ok(!('excludeFiles' in plain.rules),'rules of projects without the option stay unchanged');
+  p.write('.claude/chatgpt-workflow.json',JSON.stringify({snapshot:{excludeDirectories:[],excludeFiles:['db.sqlite3','logs/server.log']}}));
+  p.write('db.sqlite3','v1');p.write('sub/db.sqlite3','v1');p.write('logs/server.log','v1');p.write('logs/other.log','v1');
+  const a=p.snap();assert.deepEqual(a.rules.excludeFiles,['db.sqlite3','logs/server.log']);
+  assert.ok(!a.entries.some(e=>['db.sqlite3','sub/db.sqlite3','logs/server.log'].includes(e.path)));
+  p.write('db.sqlite3','v2');p.write('sub/db.sqlite3','v2');p.write('logs/server.log','v2');assert.equal(p.snap().hash,a.hash);
+  p.write('logs/other.log','v2');assert.deepEqual(diffSnapshots(a,p.snap()).map(x=>x.path),['logs/other.log']);
+  p.write('db.sqlite3.bak','x');assert.ok(p.snap().entries.some(e=>e.path==='db.sqlite3.bak'),'names match exactly, not as prefixes');
+  for(const bad of ['*.sqlite3','../x','/abs','a\\b',''])
+  {p.write('.claude/chatgpt-workflow.json',JSON.stringify({snapshot:{excludeFiles:[bad]}}));assert.throws(()=>p.snap(),/excludeFiles/,bad);}
+});

@@ -6,6 +6,17 @@ The entry supplies fixed kind `plan` or `result`; legacy `code` means result. On
 
 在 Manual 或 Auto 模式评审，不提示用户切回 Plan。读取交付物不修改业务文件，但创建评审票据、保存问题、回答、笔记和报告都要写工作流文件。若已知当前在 Plan，应在这些写入前说明原因，请用户手动切到 Manual 或 Auto 后继续；纯读取可进行，但不能声称已完成可供后续修复使用的持久评审。评审自身的命令仍需要正常工具审批；常用 Playwright 操作在本次 `/claude-review-result` 当轮免弹框，脚本执行与文件上传不在其内。不要自动改模式、修改权限或伪装写入。浏览器和测试服务按下述协议执行。评审阶段不得修改业务交付物、依赖、测试断言、验收标准或格式；避免会重写受跟踪文件的检查。只评审是指令约束，不是 OS 沙箱；原生问答在两种模式中照常使用。只有保存成功才能声明记录已持久化。
 
+## Review JSON actions
+
+None of these calls Codex.
+
+- `review-start`: `action`, `kind` (`plan`, `result`, or legacy `code`), optional `text` focus. Returns opaque `ticket`, source `version`, `reviewSession` and relevant paths/snapshot. Reuses an unfinished same-version review; changed source creates a new ticket and archives old answers without reusing them. Internal state/report kind `code` remains unchanged for compatibility.
+- `review-questions`: `action`, `kind`, `ticket`, `questions` (1–3 unique IDs/texts, header <=12, multiSelect, 2–4 options or []), optional `text` notes. Saves a new round in reviewSession.rounds and returns pendingRoundId. Cannot replace an unanswered round.
+- `review-record-answers`: `action`, `kind`, `ticket`, `roundId`, `answers: [{id,answer}]`. Save any nonempty explicit subset immediately. Corrections to the current round replace that staged answer; earlier rounds remain historical. Every answer must be nonempty and match a unique ID.
+- `review-save`: `action`, `kind`, `ticket`, `text` full review, optional confirmed `model` (otherwise null). All review questions must be answered. Persists a draft first, then writes a report with verbatim Q&A appended and marks review complete. On interrupted save, omit text to retry reviewSession.draft unchanged. An identical completed save can be retried; changed text or source requires a new review. Model attribution is informational, not attestation.
+
+评审绑定计划版本与 files-v1 文件指纹：评审期间项目文件或扫描规则变化会使票据过期（stale）。会被测试写入的本地数据文件（如 `dev.db`）需事先加入 `snapshot.excludeFiles`，见 [internals.md](internals.md)。
+
 ## Start or resume
 
 1. Call `review-start` with fixed kind, current sessionId and optional user focus in `text`. Keep the returned opaque ticket, source version and snapshotFile. A valid unfinished review returns its original ticket/rounds; do not repeatedly start a new review. Read plan, relevant decisions, actual artifacts and saved notes. When the returned `delivery.shortened` exists, read its `fullRecord` first: the printed delivery is incomplete.
@@ -61,7 +72,7 @@ Question cards and receipts remain in normal Claude conversation history. The ru
 1. 从批准计划、验收条件和实际变更列出要验证的场景；修复后重评时包含之前失败项、相关回归项和已解除阻塞项。先复用已有有效评审问答，不让用户重复回答已确认信息。
 2. 检查当前 Claude 会话实际可调用的 Playwright MCP 工具（含运行时提供的工具发现机制）。不要猜测固定工具前缀或调用不存在的工具；不要假定 Codex 能共享 MCP、浏览器连接或登录态。无可用工具时记为受阻，并继续可做的静态检查，保存部分评审；不自动安装 MCP、换其他工具后声称使用了 Playwright，也不要求 Codex 修复 MCP 安装。
 3. 从项目配置、README、已知启动日志等确定测试地址、环境和服务启动方式。不猜端口、不自行选择生产环境。缺少测试地址、账号可用性或关键验收条件时，通过上面的 review-questions / review-record-answers 协议补齐。只记录非敏感决定（如使用哪个测试角色、用户已手动登录），不要将密码、令牌或会话 Cookie 写入问答、报告或发给 Codex；可请用户在测试浏览器手动登录。
-4. 在既有授权和当前权限允许时启动必要的项目测试服务，优先复用确认属于本项目的实例。确认服务就绪、目标地址可访问，再操作页面。保留本次启动的进程句柄，按项目惯例管理它，不重复启动或终止用户原有服务。模式、权限、依赖缺失或服务错误阻止执行时，记录实际原因和已尝试步骤，按正常权限流程处理；不扩大权限、不安装全局依赖、不自动切换环境。若缺少信息已成为必要决策，保持评审问答待完成；若已有足够信息确定仅环境受阻，则无需制造问题，可保存部分报告。
+4. 操作页面前，判断测试服务或页面操作是否会写项目内文件（本地数据库、日志、上传目录等）。会写且不在排除范围内时，先告诉用户：这些写入会使本次评审过期，可在 `.claude/chatgpt-workflow.json` 的 `snapshot.excludeFiles` / `snapshot.excludeDirectories` 中排除后重新开始评审，或改用项目外的测试数据位置；不自行修改配置。在既有授权和当前权限允许时启动必要的项目测试服务，优先复用确认属于本项目的实例。确认服务就绪、目标地址可访问，再操作页面。保留本次启动的进程句柄，按项目惯例管理它，不重复启动或终止用户原有服务。模式、权限、依赖缺失或服务错误阻止执行时，记录实际原因和已尝试步骤，按正常权限流程处理；不扩大权限、不安装全局依赖、不自动切换环境。若缺少信息已成为必要决策，保持评审问答待完成；若已有足够信息确定仅环境受阻，则无需制造问题，可保存部分报告。
 5. 只在已授权测试场景内执行页面操作；登录、表单等可能写入测试数据，应核对目标和操作范围，遵循正常权限控制。检查真实页面状态与反馈，结合源码分析原因。逐场景记录测试时间、目标地址、操作步骤、预期、实际、结果和证据。工具调用成功只代表工具执行成功，不等于产品场景通过；未运行、无法登录、无法访问、未看到预期状态不能写成“通过”。浏览器窗口是否显示、使用新实例或已有连接以 MCP 配置及实际工具结果为准，不能承诺自动弹窗。
 6. 证据优先使用 runner 返回的 `paths.task` 下 `evidence/<ticket>/`；旧任务可能位于兼容目录，不硬编码新的工作流根目录。截图、日志和预览仅在工具允许时写到该位置。工具限定输出目录时记录实际路径；只有读取/复制成功才能声称证据已保存/复制，不伪造截图或证据。任务目录通常已被内部 .gitignore 忽略，应确认实际路径。若工具生成了非忽略文件导致快照变化，按原有 stale 规则重新取得评审票据并核对当前成果，不删除证据或改状态以绕过校验。截图和日志避免包含敏感登录信息。
 7. 保存正式评审，包括部分评审。确认的缺陷与未验证范围同时保留；整体验收不完整时必须明确写“检查不完整”，不因个别通过而判整体通过。服务未启动、MCP 不可用或账号不可用归类为环境受阻；只有证据证明产品行为错误时才列为产品缺陷。测试脚本/用例问题单列，不修改断言来掩盖缺陷；新增建议单列为未批准范围。

@@ -198,10 +198,10 @@ e({type:'thread.started',thread_id:i>=0?a[i+1]:'${NEW}'});e({type:'item.complete
 });
 test('the documents describe the recovery card, its limits and left-behind processes',()=>{
   const read=file=>fs.readFileSync(fileURLToPath(new URL(`../${file}`,import.meta.url)),'utf8'),refs='.claude/skills/chatgpt/references/';
-  const flow=read(refs+'workflow.md'),card=flow.split('### 会话恢复卡片')[1]?.split('\n### ')[0]||'';
+  const flow=read(refs+'resume.md'),card=flow.split('## 会话恢复卡片')[1]?.split('\n## ')[0]||'';
   for(const part of ['AskUserQuestion','重建 Codex 会话（推荐）','重试原会话','{"action":"resume","rebuildThread":true}','模型不得自行决定','取消、跳过问题、空白、超时都不算选择'])assert.ok(card.includes(part),part);
   assert.match(read('.claude/skills/chatgpt-resume/SKILL.md'),/threadLost[\s\S]*会话恢复卡片/);
-  for(const part of ['rebuildThread','threadLost','threadHistory','leftoverProcesses'])assert.ok(read(refs+'runner.md').includes(part),part);
+  for(const part of ['rebuildThread','threadLost','threadHistory','leftoverProcesses'])assert.ok((read(refs+'resume.md')+read(refs+'codex-run.md')).includes(part),part);
   for(const part of ['threadLost','leftoverProcesses'])assert.ok(read(refs+'status.md').includes(part),part);
   const readme=read('README.zh-CN.md');assert.match(readme,/不要在 Codex 或 ChatGPT 应用里删除/);assert.match(readme,/残留进程/);
 });

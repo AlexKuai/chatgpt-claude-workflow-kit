@@ -2,21 +2,7 @@
 
 本版提供独立的 `/chatgpt-*` 和 `/claude-review-*` 命令。Codex 负责需求规划、实现和修改；Claude Code 当前模型负责协调、问题卡片和评审。适用于普通项目文件夹中的代码、文档、配置和混合交付物，不要求存在或安装 Git。
 
-本版提供 14 个中文命令入口，统一必填和可选参数提示，并增强网页交互成果的 Playwright MCP 验收；保留会话绑定、问答保存与恢复、评审交接机制。
-
-2026-11-18 更新：明确记录最终交付目标，分开规划阶段限制与执行范围，增加逐项交付结果和每次执行前后快照。**`/chatgpt-implement` 执行当前获批计划；是否修改代码取决于交付目标。**
-
-2026-11-20 说明修正：本 Kit 从规划到评审、实现默认全程使用 Manual。此前建议规划和评审进入 Plan 的流程不适用于本包需要持久化文件的工作方式，现已统一修正；执行脚本及审批策略未改动。
-
-2026-11-20 自动命名更新：`/chatgpt-new <需求描述>` 不再要求手写任务 ID。当前 Claude 提供建议名称，脚本负责规范化、重名后缀和创建请求去重。本次更新了执行脚本，但审批策略、14 个命令及现有任务绑定规则保持不变。
-
-2026-11-20 非 Git 全流程更新：新建、规划、评审、实现和修复统一使用文件快照，Git 仅作辅助。首次规划明确失败且没有 UUID 时，用户执行 `/chatgpt-resume` 可在原任务中重试首次规划；runner 先核对进程与事件日志，发现 UUID 则恢复它，结果不明或进程可能仍运行时停止。保留原需求、绑定和失败记录，不生成第二个任务。已有 UUID 的正常恢复仍不重跑实现或修复。
-
-2026-11-24 收尾与会话恢复：Codex 结束后不再等待它留下的其他进程；Codex 会话在应用中被删除后，可以在原任务中重建，计划、评审和批准不变。见文末说明。
-
-2026-11-23 评审有效性修正：成果评审失效后不再显示为有效；跳过评审后的重复执行限制与说明一致；审批不再依赖硬链接，用户目录所在位置不支持硬链接时也能批准。
-
-2026-11-23 权限交互更新：Codex 改用 app-server 连接，越权请求可以回到 Claude Code 处理。**Manual 下在原生权限框逐项确认，Auto 下由 Codex 自动审查**；工作流自身的记账操作不再弹框；长任务不受工具超时影响，可取消、可恢复。上文 2026-11-20 的“全程 Manual”“审批策略不变”以本次更新为准。
+本版提供 14 个中文命令入口，统一必填和可选参数提示，并增强网页交互成果的 Playwright MCP 验收；保留会话绑定、问答保存与恢复、评审交接机制。本文只描述当前行为，各版本的变更见 [CHANGELOG.md](CHANGELOG.md)。
 
 Claude Code 自身的 “Jump to bottom”“auto mode on” 等界面文案不受本包控制，不能通过修改命令描述中文化。
 
@@ -26,7 +12,7 @@ Claude Code 自身的 “Jump to bottom”“auto mode on” 等界面文案不�
 
 前提：已安装 Claude Code、已登录的 Codex CLI、Node.js 20+。Git 为可选工具。将本包 **`.claude` 文件夹合并复制到目标项目目录**，然后重启 Claude Code。
 
-升级时完整复制本包自己的 Skills 和 scripts，包含新增的 `app-server-client.mjs`、`codex-bridge.mjs`、`control-store.mjs`、`permission-gate.mjs`；不要只复制单个 runner，也不要覆盖项目的其他配置。保留 `.chatgpt-workflow`（或旧 `.astra-workflow`）及 Codex 本地历史，不复制其他项目的任务状态。旧任务仍可查看和恢复；缺少结构化目标时，在下一次实现或修复前运行 `/chatgpt-plan 补齐当前任务的最终交付目标，保留已确认范围`，随后重新 `/claude-review-plan`。不必新建任务或换 Codex UUID，旧问答和报告保留，原批准不能自动扩展为修改授权。
+升级时请在没有运行中的任务时完整复制本包自己的 Skills（含 `skills/chatgpt/references/` 下的全部文件）和 scripts；不要只复制单个 runner，不要在审批等待中替换 runner 或 hook，也不要覆盖项目的其他配置。保留 `.chatgpt-workflow`（或旧 `.astra-workflow`）及 Codex 本地历史，不复制其他项目的任务状态。旧任务仍可查看和恢复；缺少结构化目标时，在下一次实现或修复前运行 `/chatgpt-plan 补齐当前任务的最终交付目标，保留已确认范围`，随后重新 `/claude-review-plan`。不必新建任务或换 Codex UUID，旧问答和报告保留，原批准不能自动扩展为修改授权。
 
 ```text
 项目根目录/
@@ -59,7 +45,7 @@ Claude Code 自身的 “Jump to bottom”“auto mode on” 等界面文案不�
 1. 合并新版 `.claude`，包括所有入口、共享 references 和脚本；不要混用新旧脚本与 Skill。若曾复制试用版，**只删除旧的 `.claude/skills/claude-review-code` 目录**；合并复制不会替你删除旧入口，不要删除其他 Skill。
 2. **保留项目 `.chatgpt-workflow`**，不要删除任务、UUID、问答或评审报告。任务 schema 和内部 `code` 评审记录保持兼容，无需手工改文件。
 3. 重启 Claude。旧任务还没有 Claude 会话绑定，第一次运行 `/chatgpt-use <任务ID>`，之后 `/chatgpt-resume`。
-4. 本次升级改变了扫描规则（新增排除 `.claude/settings.local.json`），升级前保存的评审会过期一次，按提示重新评审即可。
+4. 从 2026-11-23 之前的版本升级时，扫描规则有变化（新增排除 `.claude/settings.local.json`），升级前保存的评审会过期一次，按提示重新评审即可。旧版生成的审批凭据不跨版本沿用。旧的 `skills/chatgpt/references/workflow.md` 已不再使用，可以删除。
 5. 需要 Codex CLI 支持 `app-server`（本包在 0.171.0 上验证）。较旧版本可在 `.claude/chatgpt-workflow.json` 设置 `"transport": "exec"` 回退，但没有审批回传。
 6. 审批控制文件保存在 `~/.chatgpt-claude-kit/`，卸载本包时可一并删除。
 7. 如果使用最早的 Astra 包，仅移除该包自己的旧 `astra`、`opus-review` Skill 和 `astra-workflow.mjs`，不要删除其他配置。保留 `.astra-workflow`，新版会原地复用旧任务；若新旧目录都存在 active.json，会停止并报告歧义，不自动删除或合并。
@@ -76,7 +62,7 @@ claude
 
 `doctor` 检查 Node、Codex 路径和版本，并显示扫描规则与可选 Git 状态，不调用模型，不验证模型权限或登录计费。应确认 Codex CLI 使用你希望的 ChatGPT 登录；如果 CLI 使用 API 计费，本包不会自动改成订阅计费。
 
-Windows 无法找到 Codex 时，可以使用本项目 `.claude/chatgpt-workflow.json` 的 `codexCommand` 配置；详细格式见 [runner 协议](.claude/skills/chatgpt/references/runner.md)。不需要改全局 PATH。
+Windows 无法找到 Codex 时，可以使用本项目 `.claude/chatgpt-workflow.json` 的 `codexCommand` 配置；详细格式见 [配置说明](.claude/skills/chatgpt/references/internals.md)。不需要改全局 PATH。
 
 ## 2. 模型与模式：Manual 逐项确认，Auto 自动审查
 
@@ -100,6 +86,7 @@ Codex 新建与恢复会话均不传模型、推理强度或 profile 覆盖参�
 - 模型不能代答：批准命令必须经过权限 hook 弹框；缺少确认码会被拒绝。`/clear`、`/resume` 之后 hook 会被移除，运行 `/chatgpt-resume` 即可重新加载。
 - 内容过长无法完整展示、类型未知、30 分钟未答复的请求一律拒绝；Codex 继续执行并在结果中列出受阻项。
 - 规划阶段保持只读沙箱，文件修改申请一律拒绝；命令申请照常弹框并标注“规划阶段”。
+- 权限框里选“始终允许”：只对本包的审批命令无害，后续审批照常弹框；对其他命令选“始终允许”会改写 `.claude/settings.local.json`，本次运行后续审批会失效。执行中请尽量只选单次允许。
 - 请求文件、状态查询等工作流自身操作不再弹框；`/chatgpt-implement`、`/chatgpt-fix` 只在你输入命令的当轮免弹框。Claude 评审自己运行的测试命令仍按正常权限处理。
 - 边界：此机制防误批和模型跳步，不防能以你的账户读取用户目录的恶意程序。实现阶段 Codex 可以写项目目录，包括 `.claude`；执行期间若本包脚本或权限配置被改动，后续批准自动失效并在结果中警告。
 
@@ -402,6 +389,8 @@ Skills 使用官方 `${CLAUDE_SESSION_ID}` 传入当前会话身份。恢复 Cla
 
 `new` 只有需求描述必填，缺少需求先追问，不创建空任务。自动任务 ID 使用不超过 64 字符的小写字母、数字和连字符，重名时追加后缀。`use` 仍需明确已有任务 ID，不猜测绑定；旧 ID（包括下划线）、Codex UUID 和会话映射不变。`argument-hint` 只是自动补全提示，Skill 和脚本仍负责校验。
 
+`/chatgpt-new`、`/chatgpt-plan`、`/chatgpt-revise-plan`、`/chatgpt-implement`、`/chatgpt-fix`、`/chatgpt-use`、`/chatgpt-unlock` 只能由你输入触发，Claude 不会在普通聊天中自行调用它们；帮助、状态、恢复和评审命令可由 Claude 在流程中调用（例如评审选择卡片中选“先评审”）。
+
 不用每次填写模型、resume 或 wait 参数。普通聊天中的评审不会自动登记成有效评审报告，交接给 Codex 时请使用相应评审命令。
 
 ## 6. 数据、验证与限制
@@ -453,17 +442,17 @@ node --test validation/*.test.mjs
 
 ## 非 Git 项目的快照与升级
 
-所有项目均使用 files-v1 文件快照，不依赖 Git。快照按内容哈希记录新增、修改、删除和类型变化；Git 状态、提交和差异只作辅助，不参与评审版本判断。固定排除 .git、.chatgpt-workflow、.astra-workflow 和 .claude/settings.local.json（Claude Code 保存权限选择时会改写它；执行期间的改动仍由防篡改检查报告）；默认排除 node_modules、.venv、__pycache__、.cache、.vs、.next、.nuxt、.turbo、coverage、test-results、playwright-report、.playwright-mcp、.pytest_cache、.mypy_cache、TestResults；bin/obj 仅在同级有 *.csproj、*.fsproj、*.vbproj 时排除，target 仅在同级有 Cargo.toml、pom.xml 时排除。扫描不采用 .gitignore，dist/build 默认纳入。排除目录不算已检查。UTF-8 文本每文件最多 1 MiB，每次快照最多新增 32 MiB 原文备份，按内容哈希去重；二进制、大文件及预算外内容只记录指纹和未备份原因。不能据此承诺完整回滚。
-
-可在本项目的 `.claude/chatgpt-workflow.json` 配置扫描排除项，和现有 codexCommand 字段合并：
+快照规则见上一节。可在本项目的 `.claude/chatgpt-workflow.json` 配置扫描排除项，和现有 codexCommand 字段合并：
 
 ```json
-{"snapshot":{"excludeDirectories":["node_modules",".venv","__pycache__",".cache","generated/cache"]}}
+{"snapshot":{"excludeDirectories":["node_modules",".venv","__pycache__",".cache","generated/cache"],"excludeFiles":["dev.db","logs/server.log"]}}
 ```
 
 此配置**替换**全部默认排除项，包括 bin/obj/target 的条件排除；需要保留的默认目录请一并写入。
 
 该数组替换普通默认排除项。单名称匹配任意层级同名目录，带 / 的路径相对于项目根目录；不支持通配符、绝对路径或 ..。设为空数组可纳入依赖目录，但固定排除项始终生效。改变规则会使相关评审失效；交付物涉及排除目录时先调整范围。
+
+`excludeFiles` 排除单个文件，规则与目录相同（单文件名匹配任意层级同名文件，带 / 的路径相对于项目根目录）。浏览器验收或测试服务会写入项目内的本地数据库、日志时，先把它们加进来再开始评审，否则评审期间的写入会让评审在保存时过期。不配置 `excludeFiles` 时扫描规则与旧版完全相同。
 
 任务内新增 `objects/<SHA256>` 文本原文备份，现有 baseline 与每次 before/after snapshot 文件使用 files-v1 格式。条目记录 contentFile 或 backupReason；变更清单保存在 delivery.changes，changesDetected=null 表示变化未知，不等于没有修改。执行前快照不可靠时不启动写入；执行后快照失败时保留执行输出，不自动重跑。
 
@@ -471,39 +460,14 @@ node --test validation/*.test.mjs
 
 遇到此前“目录不可信，首次规划失败且没有 UUID”的任务：合并整套新版 .claude，保留运行记录，重启并恢复原 Claude 会话，运行 /chatgpt-status 后 /chatgpt-resume 即可尝试原任务恢复。不需要 git init，也不需要新建带 -2 后缀的任务。
 
+## 7. 运行中断、接管与收尾
 
-## 2026-11-23 可靠性修复
-
-保留 14 个命令和 app-server 审批转接。安装时完整合并本包自己的 Skills 与 scripts，包含新增 runtime-questions.mjs；保留项目任务记录，不覆盖其他项目配置。
-
+- **输出精简**：runner 只打印必要内容，完整记录仍在任务文件里；排错用 `status <会话ID> --full`。给本包命令加管道或拼接其他命令会被 hook 退回，Claude 自行改成单条命令重试，不弹框打扰你。同一会话里任何经过 hook 的命令都会更新权限模式；子代理的模式不影响主会话。
 - **取消**：从启动 worker 起处理取消，初始化或恢复期间取消不会继续启动执行回合。执行请求已发出时会尝试中断，超过 10 秒仍未停止则终止进程树；已产生修改不会自动回滚。已经完成的任务返回实际结果。
 - **接管**：原 Claude 会话仍可正常恢复。新会话先用 `/chatgpt-use <任务ID>` 绑定，再用 `/chatgpt-resume` 接管后台任务；不用解锁、不生成新 Codex 会话。旧会话未提交的审批凭据失效，已提交决定保留。本轮审批模式不因接管自动变化。
 - **部分回答**：运行中一次问多题，只回答其中一题也会立即保存；恢复后只问剩余问题。用户明确更正会记录历史。退出 Claude 不等于取消，未回答或超时不算同意。
-- **保存位置**：项目会话绑定仍在工作流 sessions 目录；外部 `~/.chatgpt-claude-kit/` 控制目录增加运行负责人代次和逐题暂存。任务目录新增 `<运行ID>.runtime-questions.json`，保存问题、原文答案、更正及终止原因。它们不会写进 Claude 私有聊天文件。
-- **归档失败**：明确提示并保留外部暂存，后续续接先重试归档；成功归档前不清理，不能以重跑实现替代恢复。
-- **升级**：请在已有运行结束后更新脚本；旧的 UUID、计划、问答和报告保留。不要在审批等待中替换 runner 或 hook。旧版生成的审批凭据不跨版本沿用。
-
-推荐全程 Manual；也支持 Auto，审批路由保持候选版约定。权限框、真实模型和 Playwright 的验证范围以 VALIDATION.md 为准。
-
-## 2026-11-23 首个真实任务后的改进
-
-仍是 14 个命令。请在没有运行中的任务时完整合并 scripts 与 Skills，新增 `output-view.mjs`。
-
-- **输出精简**：runner 只打印必要内容，完整记录仍在文件里。首个真实任务的状态从约 15.8 万字符降到约 1.9 万。排错用 `status <会话ID> --full`。
-- **单独运行**：给本包命令加管道或拼接其他命令会被 hook 退回，Claude 自行改正后重试，不弹框打扰你。
-- **模式跟随**：同一会话里任何经过 hook 的命令都会更新权限模式，不再因为命令带管道而变成“模式未知”。子代理的模式不影响主会话。
-- **评审不再误过期**：权限框选“始终允许”会改写 `.claude/settings.local.json`，它不再计入评审快照。**执行期间**改动它仍会使后续批准失效，因为也可能是 Codex 改的；执行中请尽量只选单次允许。
-- **只看状态**：`/chatgpt` 和 `/chatgpt-status` 不再做额外检查；任何没跑成的检查都必须说明。
-- **稳定性**：修复 Windows 下多个进程争抢状态锁时批准或收尾偶发报错（EPERM）；Codex 已撤回的问题不再弹出来问。
-- **检查覆盖**：成果评审必须列出实际读过、看过和没检查的范围。这是报告约定，脚本无法证明。
-
-## 2026-11-24 收尾与会话恢复
-
-仍是 14 个命令，没有新增脚本。请在没有运行中的任务时完整合并 scripts 与 Skills。
-
-- **不再长时间不收尾**：Codex 有时会留下后台进程（例如插件更新的 `git clone`），以前要等它结束，运行才算完成。现在 Codex 主进程退出后约 2 秒内收尾，结果不受影响。
-- **残留进程**：不会被结束，但会在状态中说明；实现和修复还会在交付记录中警告，因为它之后仍可能改动文件。
-- **会话被删除**：在 Codex 或 ChatGPT 应用中删除任务的会话后，命令会明确说明原因，并保持任务状态不变。运行 `/chatgpt-resume`，可选择重建 Codex 会话（推荐）或重试原会话。重建不会重跑实现；丢失的只有旧的 Codex 对话。
+- **保存位置**：会话绑定在工作流 sessions 目录；外部 `~/.chatgpt-claude-kit/` 控制目录保存审批记录、运行负责人代次和逐题暂存。任务目录的 `<运行ID>.runtime-questions.json` 保存运行问答、原文答案、更正及终止原因。它们不会写进 Claude 私有聊天文件。归档失败时明确提示并保留外部暂存，后续续接先重试归档；不能以重跑实现替代恢复。
+- **收尾**：Codex 主进程退出后约 2 秒内收尾，不等它留下的后台进程（例如插件更新的 `git clone`）。**残留进程**不会被结束，但会在状态中说明；实现和修复还会在交付记录中警告，因为它之后仍可能改动文件。
+- **会话被删除**：在 Codex 或 ChatGPT 应用中删除任务的会话后，命令会明确说明原因，并保持任务状态不变。运行 `/chatgpt-resume`，可选择重建 Codex 会话（推荐）或重试原会话。重建不会重跑实现；丢失的只有旧的 Codex 对话。升级前因会话丢失而卡住的任务同样适用；旧版已作废的批准和评审不会自动找回。
 - **会话被占用**：在应用中打开任务的会话可能使命令失败，关闭后重试即可。
-- **旧任务**：升级前因会话丢失而卡住的任务，升级后同样可以用 `/chatgpt-resume` 恢复；旧版已作废的批准和评审不会自动找回。
-- **任务文件被占用**：Windows 上，`state.json` 等文件被其他程序短暂打开时（查看状态、编辑器、杀毒软件），运行不再失败或中断。保存最多等约 10 秒；一直被占用时会指明文件和处理办法，不会重新执行。请不要长时间独占打开 `.chatgpt-workflow` 中的文件。
+- **任务文件被占用**：Windows 上，`state.json` 等文件被其他程序短暂打开时（查看状态、编辑器、杀毒软件），运行不会失败或中断。保存最多等约 10 秒；一直被占用时会指明文件和处理办法，不会重新执行。请不要长时间独占打开 `.chatgpt-workflow` 中的文件。

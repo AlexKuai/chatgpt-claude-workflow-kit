@@ -177,6 +177,6 @@ test('a file that stays unreadable is still an error',{timeout:60000},async t=>{
 });
 test('the documents say what to do when a task file stays in use',()=>{
   const doc=file=>fs.readFileSync(fileURLToPath(new URL(`../${file}`,import.meta.url)),'utf8');
-  assert.match(doc('.claude/skills/chatgpt/references/runner.md'),/无法保存[\s\S]*不重新执行/);
+  assert.match(doc('.claude/skills/chatgpt/references/codex-run.md'),/无法保存[\s\S]*不重新执行/);
   assert.match(doc('README.zh-CN.md'),/任务文件被占用/);
 });
