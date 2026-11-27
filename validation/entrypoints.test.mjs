@@ -26,7 +26,7 @@ test('public help entry has no dispatch table and the shared question workflow r
  const dir=path.join(root,'.claude','skills','chatgpt');
  const text=fs.readFileSync(path.join(dir,'SKILL.md'),'utf8');
  assert.ok(text.includes('HELP AND STATUS ONLY'));assert.ok(!text.includes('## Dispatch'));
- for(const f of ['commands.md','runner.md','planning.md','codex-run.md','review-choice.md','execution.md','resume.md','review.md','status.md','internals.md'])assert.ok(fs.existsSync(path.join(dir,'references',f)));
+ for(const f of ['commands.md','runner.md','planning.md','claude-planning.md','codex-run.md','review-choice.md','execution.md','resume.md','review.md','status.md','internals.md'])assert.ok(fs.existsSync(path.join(dir,'references',f)));
 });
 const skillMeta=name=>fs.readFileSync(path.join(root,'.claude','skills',name,'SKILL.md'),'utf8').split('---')[1];
 const entries=fs.readdirSync(path.join(root,'.claude','skills'));
@@ -40,7 +40,7 @@ test('every entry that calls the runner registers the same permission gate; noth
   assert.ok(!fs.existsSync(path.join(root,'.claude/settings.json')));
 });
 test('entries that write, switch tasks or clear locks can only be started by the user',()=>{
-  const manual=new Set(['chatgpt-new','chatgpt-plan','chatgpt-revise-plan','chatgpt-implement','chatgpt-fix','chatgpt-use','chatgpt-unlock']);
+  const manual=new Set(['chatgpt-new','chatgpt-plan','chatgpt-revise-plan','chatgpt-implement','chatgpt-fix','chatgpt-use','chatgpt-unlock','claude-new','claude-plan','claude-revise-plan']);
   for(const name of entries)assert.equal(/^disable-model-invocation: true$/m.test(skillMeta(name)),manual.has(name),name);
 });
 test('only the writing entries and the browser review pre-approve tools, narrowly',()=>{
@@ -62,10 +62,15 @@ test('each entry links only the protocol it needs, keeping the Claude-side readi
   const bytes=name=>linked(name).reduce((n,f)=>n+fs.statSync(f).size,0);
   for(const name of entries){
     assert.ok(!linked(name).some(f=>path.basename(f)==='workflow.md'),name);
-    const limit=['chatgpt','chatgpt-status','chatgpt-doctor','chatgpt-use','chatgpt-unlock','claude-review'].includes(name)?20000:36000;
+    // /chatgpt lists all 18 commands, so its help is a little larger than the other read-only entries.
+    const limit=name==='chatgpt'?22000:['chatgpt-status','chatgpt-doctor','chatgpt-use','chatgpt-unlock','claude-review'].includes(name)?20000:36000;
     assert.ok(bytes(name)<=limit,`${name}: ${bytes(name)} bytes of linked protocol (limit ${limit})`);
   }
-  for(const name of ['chatgpt-plan','chatgpt-implement'])assert.ok(linked(name).some(f=>f.endsWith('review-choice.md')),name);
-  for(const name of entries.filter(n=>/^chatgpt-(new|plan|revise-plan|implement|fix|resume)$/.test(n)))
+  for(const name of ['chatgpt-plan','chatgpt-implement','claude-plan'])assert.ok(linked(name).some(f=>f.endsWith('review-choice.md')),name);
+  for(const name of ['claude-new','claude-plan','claude-revise-plan']){
+    assert.ok(linked(name).some(f=>f.endsWith('claude-planning.md')),name);
+    assert.ok(!linked(name).some(f=>/(planning|codex-run|execution)\.md$/.test(path.basename(f))&&!f.endsWith('claude-planning.md')),`${name} does not read the Codex planning protocol`);
+  }
+  for(const name of entries.filter(n=>/^chatgpt-(new|plan|revise-plan|review-plan|implement|fix|resume)$/.test(n)))
     assert.ok(linked(name).some(f=>f.endsWith('codex-run.md')),name);
 });

@@ -33,7 +33,7 @@ async function turn(params){
   if(interrupted){note('turn/completed',{threadId:thread,turn:{id:turnId,status:'interrupted',items:[],error:null}});return;}
   if(scenario.turnStatus){note('turn/completed',{threadId:thread,turn:{id:turnId,status:scenario.turnStatus,items:[],error:{message:scenario.turnError||'fixture turn failed'}}});return;}
   const schema=params.outputSchema;
-  const answer=scenario.answer??(schema?.properties?.outcome?JSON.stringify(fixtureResult):schema?JSON.stringify({status:'ready',plan:'# Plan\nDo it.',questions:[],contract:fixtureContract}):'# Recap');
+  const answer=scenario.answer??(schema?.properties?.outcome?JSON.stringify(fixtureResult):schema?.properties?.findings?JSON.stringify({verdict:'approve',summary:'可以实施',findings:[],openQuestions:[],report:'# 评审\n可以实施。'}):schema?JSON.stringify({status:'ready',plan:'# Plan\nDo it.',questions:[],contract:fixtureContract}):'# Recap');
   note('item/completed',{threadId:thread,turnId,item:{type:'agentMessage',id:'m0',text:'working',phase:'commentary'}});
   note('item/completed',{threadId:thread,turnId,item:{type:'agentMessage',id:'m1',text:answer,phase:'final_answer'}});
   note('turn/completed',{threadId:thread,turn:{id:turnId,status:'completed',items:[],error:null}});

@@ -2,7 +2,7 @@
 
 本版提供独立的 `/chatgpt-*` 和 `/claude-review-*` 命令。Codex 负责需求规划、实现和修改；Claude Code 当前模型负责协调、问题卡片和评审。适用于普通项目文件夹中的代码、文档、配置和混合交付物，不要求存在或安装 Git。
 
-本版提供 14 个中文命令入口，统一必填和可选参数提示，并增强网页交互成果的 Playwright MCP 验收；保留会话绑定、问答保存与恢复、评审交接机制。本文只描述当前行为，各版本的变更见 [CHANGELOG.md](CHANGELOG.md)。
+本版提供 18 个中文命令入口，统一必填和可选参数提示，并增强网页交互成果的 Playwright MCP 验收；保留会话绑定、问答保存与恢复、评审交接机制。本文只描述当前行为，各版本的变更见 [CHANGELOG.md](CHANGELOG.md)。
 
 Claude Code 自身的 “Jump to bottom”“auto mode on” 等界面文案不受本包控制，不能通过修改命令描述中文化。
 
@@ -119,7 +119,7 @@ Codex 在独立进程中运行，Claude 的工具超时不会结束它；超过�
 
 | 操作 | 已评审 | 没有评审 |
 | --- | --- | --- |
-| `/chatgpt-new`、`/chatgpt-plan`、`/chatgpt-revise-plan` 后 `/chatgpt-implement` | 直接实现，不弹卡片 | 弹卡片：先评审计划 / 跳过评审直接实现 |
+| `/chatgpt-new`、`/chatgpt-plan`、`/chatgpt-revise-plan`（或 Claude 规划的 `/claude-new`、`/claude-plan`、`/claude-revise-plan`）后 `/chatgpt-implement` | 直接实现，不弹卡片 | 弹卡片：先评审计划 / 跳过评审直接实现 |
 | `/chatgpt-implement` 或 `/chatgpt-fix` 后 `/chatgpt-plan` | 直接规划，不弹卡片 | 弹卡片：先评审成果 / 跳过评审继续规划 |
 
 - 想省一步，可在命令后写明，例如 `/chatgpt-implement 跳过评审`，不再弹卡片；只对这一次有效。
@@ -129,6 +129,22 @@ Codex 在独立进程中运行，Claude 的工具超时不会结束它；超过�
 - 不评审就规划时，上次的未完成项和旧评审意见会交给 Codex 核对；但这次成果不能再单独评审。
 - 跳过评审的计划执行过一次后，不会重复执行；只有明确失败且确认没有文件变化时可以重试。其他情况请用 `/claude-review-result`、`/chatgpt-fix` 或 `/chatgpt-plan` 继续。
 - `/chatgpt-fix` 和 `/chatgpt-revise-plan` 以评审报告为输入，仍需要先有对应评审。评审做到一半时，先用 `/chatgpt-resume` 完成。
+
+### 另一条规划路线：Claude 规划，ChatGPT 评审计划
+
+想让 Claude 写计划、ChatGPT 挑毛病时，把规划阶段换成：
+
+1. `/claude-new <需求描述>`：Claude 只读检查项目，必要时用问题卡片问你，然后保存计划和交付目标。已有任务要重新规划用 `/claude-plan [补充说明]`。
+2. `/chatgpt-review-plan [关注点]`：Codex 在只读沙箱中评审计划，不改文件、不改计划，保存结论、发现和需要你决定的问题。
+3. `/claude-revise-plan [修改重点]`（按需）：Claude 逐条核实评审意见，说明接受或不接受的理由，需要你决定的地方会提问。交付目标没变时沿用原评审；目标变化需要再评审一次（或在实现前的卡片中跳过）。
+4. 之后和默认流程完全相同：`/chatgpt-implement` → `/claude-review-result`（含 Playwright 浏览器验收）→ `/chatgpt-fix`。
+
+说明：
+
+- 两条路线可以混用，它们作用在同一份计划上。例如 Claude 写的计划也可以 `/claude-review-plan`，或 `/chatgpt-plan` 交给 Codex 重新规划。实现前的评审卡片按计划作者推荐评审方：Claude 写的推荐 ChatGPT 评审，Codex 写的推荐 Claude 评审。
+- Claude 规划的任务在 Codex 第一次参与（评审、实现或重新规划）时才建立 Codex 会话，runner 会把原始需求、计划、目标和你的回答一并交给它。
+- Claude 编写计划比只做评审多用 Claude 额度；ChatGPT 评审计划消耗 Codex 额度。
+- Claude 规划做到一半退出，`/chatgpt-resume` 会接着问剩下的问题或重试保存。要放弃这次规划请明确告诉 Claude，原计划和评审不受影响。
 
 ### 第一步：打开 Claude Code
 
@@ -375,6 +391,10 @@ Skills 使用官方 `${CLAUDE_SESSION_ID}` 传入当前会话身份。恢复 Cla
 | `/chatgpt-plan [补充需求或讨论内容]` | 补充需求或继续 Codex 规划。 |
 | `/claude-review-plan [关注点]` | 使用 Claude 当前模型评审计划，必要时问答并保存意见。 |
 | `/chatgpt-revise-plan [修改重点]` | 让 Codex 根据已保存的计划评审修改计划。 |
+| `/claude-new <需求描述>` | 根据需求自动命名并创建任务，由 Claude 规划和问答。 |
+| `/claude-plan [补充需求或讨论内容]` | 由 Claude 为当前任务补充需求或重新规划。 |
+| `/chatgpt-review-plan [关注点]` | 让 ChatGPT（Codex）在只读沙箱中评审当前计划并保存意见。 |
+| `/claude-revise-plan [修改重点]` | 由 Claude 根据已保存的计划评审修改计划。 |
 | `/chatgpt-implement` | 授权 Codex 执行当前计划；未评审时可选择先评审或跳过。 |
 | `/claude-review-result [关注点或验证要求]` | 使用 Claude 评审实现成果；网页交互使用可用的 Playwright MCP 验证。 |
 | `/chatgpt-fix [问题编号或修改重点]` | 让 Codex 根据已保存的成果评审修改交付物。 |
@@ -389,7 +409,7 @@ Skills 使用官方 `${CLAUDE_SESSION_ID}` 传入当前会话身份。恢复 Cla
 
 `new` 只有需求描述必填，缺少需求先追问，不创建空任务。自动任务 ID 使用不超过 64 字符的小写字母、数字和连字符，重名时追加后缀。`use` 仍需明确已有任务 ID，不猜测绑定；旧 ID（包括下划线）、Codex UUID 和会话映射不变。`argument-hint` 只是自动补全提示，Skill 和脚本仍负责校验。
 
-`/chatgpt-new`、`/chatgpt-plan`、`/chatgpt-revise-plan`、`/chatgpt-implement`、`/chatgpt-fix`、`/chatgpt-use`、`/chatgpt-unlock` 只能由你输入触发，Claude 不会在普通聊天中自行调用它们；帮助、状态、恢复和评审命令可由 Claude 在流程中调用（例如评审选择卡片中选“先评审”）。
+`/chatgpt-new`、`/chatgpt-plan`、`/chatgpt-revise-plan`、`/claude-new`、`/claude-plan`、`/claude-revise-plan`、`/chatgpt-implement`、`/chatgpt-fix`、`/chatgpt-use`、`/chatgpt-unlock` 只能由你输入触发，Claude 不会在普通聊天中自行调用它们；帮助、状态、恢复和评审命令可由 Claude 在流程中调用（例如评审选择卡片中选“先评审”）。
 
 不用每次填写模型、resume 或 wait 参数。普通聊天中的评审不会自动登记成有效评审报告，交接给 Codex 时请使用相应评审命令。
 

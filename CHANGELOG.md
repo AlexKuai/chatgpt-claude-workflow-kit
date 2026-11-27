@@ -2,6 +2,16 @@
 
 新版在上。README 只描述当前行为；这里保留各版本当时的说明原文，其中部分内容已被后续版本修改。
 
+## 2026-11-26（二）Claude 规划路线
+
+新增 4 个命令，共 18 个。原有 14 个命令、默认流程和旧任务的行为都不变。请在没有运行中的任务时完整合并 scripts 与 Skills（含新的 `references/claude-planning.md`）。
+
+- **另一条规划路线**：`/claude-new <需求描述>` 由 Claude 只读检查项目、问答并编写计划；`/claude-plan [补充说明]` 由 Claude 重新规划当前任务；`/chatgpt-review-plan [关注点]` 由 ChatGPT（Codex）在只读沙箱中评审计划；`/claude-revise-plan [修改重点]` 由 Claude 按评审修订。之后照常 `/chatgpt-implement` → `/claude-review-result` → `/chatgpt-fix`。
+- **规则与原流程对称**：Claude 计划使用同一套交付目标校验；修订后交付目标不变时沿用原评审，变化时需要重新评审；跳过评审仍需在卡片中明确选择。实现前的卡片按计划作者推荐评审方。
+- **Codex 会话**：Claude 规划的任务在 Codex 第一次评审、实现或重新规划时才新建会话，并收到原始需求、计划、目标和问答。
+- **可恢复**：Claude 规划的问答逐题保存，计划先存草稿再写入；中断后 `/chatgpt-resume` 继续。计划被其他操作改变时旧票据失效。
+- Claude 编写计划会多用 Claude 额度。
+
 ## 2026-11-26 Claude 额度与评审稳定性
 
 仍是 14 个命令。请在没有运行中的任务时完整合并 scripts 与 Skills；旧的 `references/workflow.md` 已不再使用，可以删除。

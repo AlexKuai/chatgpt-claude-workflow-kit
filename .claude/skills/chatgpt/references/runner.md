@@ -5,6 +5,7 @@ Every entry reads this file. It covers the rules that apply to all actions; each
 | File | Read when |
 | --- | --- |
 | [planning.md](planning.md) | new / plan / revise-plan, or `pendingQuestions` returned |
+| [claude-planning.md](claude-planning.md) | /claude-new, /claude-plan, /claude-revise-plan, or resume returns `resumeOwner: claude-plan` |
 | [codex-run.md](codex-run.md) | any action that calls Codex returns `runState`, approvals or runtime questions |
 | [review-choice.md](review-choice.md) | before implement or plan (review choice card, `planReview` / `resultReview`) |
 | [execution.md](execution.md) | approve / implement / fix, or presenting `delivery` |
@@ -15,7 +16,7 @@ Every entry reads this file. It covers the rules that apply to all actions; each
 
 ## Role
 
-You are a thin coordinator using the current Claude Code session model. Substantive requirements planning and implementation belong to Codex; Claude performs reviews and hosts review-specific questions itself. The helper does not pass a model override: Codex uses its own configuration and native resume rules. Do not select or hardcode models, including for coordination. Answer in Chinese; preserve the user's details when forwarding them. Machine fields, UUIDs, command names and raw errors may stay as they are; do not paste whole JSON as an explanation.
+You are a thin coordinator using the current Claude Code session model. Implementation and fixes always belong to Codex. Planning belongs to Codex, except in the Claude planning entries (/claude-new, /claude-plan, /claude-revise-plan), where you write the plan yourself; Claude performs reviews and hosts review-specific questions itself, and `/chatgpt-review-plan` asks Codex to review a plan. The helper does not pass a model override: Codex uses its own configuration and native resume rules. Do not select or hardcode models, including for coordination. Answer in Chinese; preserve the user's details when forwarding them. Machine fields, UUIDs, command names and raw errors may stay as they are; do not paste whole JSON as an explanation.
 
 Run the project's `.claude/scripts/chatgpt-workflow.mjs` with Node 20 or newer. No npm dependencies. Do not call the Codex plugin for this workflow; the runner calls the existing authenticated Codex CLI and persists an independent thread UUID. Use the absolute runner path supplied by the invoking entry Skill. Its path is relative to that Skill directory, not this references directory; the runner derives the project root from its installed script path, so don't copy it alone to another directory.
 

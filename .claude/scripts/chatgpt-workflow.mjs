@@ -22,6 +22,43 @@ const planningSchema={type:'object',additionalProperties:false,required:['status
     id:string,header:string,question:string,multiSelect:{type:'boolean'},options:{type:'array',items:{type:'object',additionalProperties:false,required:['label','description'],properties:{label:string,description:string}}}
   }}}
 }};
+const planReviewSchema={type:'object',additionalProperties:false,required:['verdict','summary','findings','openQuestions','report'],properties:{
+  verdict:{type:'string',enum:['approve','revise','blocked']},summary:string,
+  findings:{type:'array',items:{type:'object',additionalProperties:false,required:['id','severity','section','problem','suggestion'],properties:{
+    id:string,severity:{type:'string',enum:['blocker','major','minor']},section:string,problem:string,suggestion:string}}},
+  openQuestions:{type:'array',items:string},report:string
+}};
+const VERDICTS={approve:'可以实施',revise:'建议先修订',blocked:'需要用户决定后才能继续'},SEVERITIES={blocker:'阻塞',major:'重要',minor:'次要'};
+function parsePlanReview(raw){
+  try{
+    const r=JSON.parse(raw);
+    if(!VERDICTS[r.verdict]||typeof r.summary!=='string'||!Array.isArray(r.findings)||!Array.isArray(r.openQuestions))throw Error('shape');
+    textValue(r.report);const ids=new Set();
+    for(const x of r.findings){
+      if(!x||!/^[a-z0-9_-]{1,64}$/i.test(x.id)||ids.has(x.id)||!SEVERITIES[x.severity])throw Error('findings need unique IDs and a known severity');
+      ids.add(x.id);textValue(x.problem);for(const k of ['section','suggestion'])if(typeof x[k]!=='string')throw Error('finding shape');
+    }
+    if(r.openQuestions.some(q=>typeof q!=='string'||!q.trim()))throw Error('open questions must be text');
+    return r;
+  }catch(e){throw Error(`Invalid plan review response: ${e.message}. 评审未保存；原始输出在任务目录，可重新 /chatgpt-review-plan。`);}
+}
+function renderPlanReview(r){
+  const lines=['# ChatGPT 计划评审','',`结论：${VERDICTS[r.verdict]}（${r.verdict}）`,'',r.summary.trim()||'（无摘要）',''];
+  lines.push('## 发现','');
+  if(!r.findings.length)lines.push('无。','');
+  for(const x of r.findings)lines.push(`### ${x.id}（${SEVERITIES[x.severity]}）${x.section?` — ${x.section}`:''}`,'',`问题：${x.problem}`,'',`建议：${x.suggestion||'无'}`,'');
+  lines.push('## 需要用户决定的问题','',...(r.openQuestions.length?r.openQuestions.map(q=>`- ${q}`):['无。']),'','## 完整报告','',r.report.trim(),'');
+  return lines.join('\n');
+}
+// Claude planning: a ticket bound to the plan it started from.
+const authoringBase=s=>`${s.revision}:${s.plan?.hash||'none'}:${s.plan?.contractHash||'none'}`;
+const planReviewCommand=state=>state?.plan?.author==='claude'?'/chatgpt-review-plan':'/claude-review-plan';
+function archiveAuthoring(state,outcome,extra={}){
+  if(!state.authoring)return;
+  const {draft,...session}=state.authoring;
+  state.authoringHistory=[...(state.authoringHistory||[]),{...session,...(draft?{draftSaved:true}:{}),...extra,outcome,finishedAt:now()}];
+  state.authoring=null;
+}
 function parsePlanning(raw){
   try{
     const p=JSON.parse(raw);
@@ -46,7 +83,7 @@ function saveQuestions(dir,state){
   for(const round of state.questionHistory||[]){
     lines.push(`## ${round.id} (${round.createdAt})`,'');
     for(const q of round.questions){lines.push(`问题 ${q.id}：${q.question}`,...q.options.map(o=>`- ${o.label}：${o.description}`),`回答：${(round.answers||round.partialAnswers)?.find(a=>a.id===q.id)?.answer||'待回答'}`,'');}
-    lines.push(`发送给 Codex：${round.deliveredAt||'待发送'}`,'');
+    lines.push(round.askedBy==='claude'?'提问方：Claude 规划（答案随计划保存，实现时交给 Codex）':`发送给 Codex：${round.deliveredAt||'待发送'}`,'');
   }
   artifact(dir,'questions.md',lines.join('\n'));
 }
@@ -70,6 +107,25 @@ function saveReviewQuestions(dir,state){
 function archiveReview(state,outcome){
   if(state.reviewSession){state.reviewHistory=state.reviewHistory||[];state.reviewHistory.push({...state.reviewSession,outcome,finishedAt:now()});}
   state.reviewSession=null;state.ticket=null;
+}
+// One question round at a time; answers are staged per question as the user gives them.
+function addRound(session,request,who){
+  if(missingReviewAnswers(session))fail(`Answer the current ${who} questions before adding another round.`);
+  const questions=parsePlanning(JSON.stringify({status:'needs_questions',plan:'',questions:request.questions})).questions;
+  const round={id:crypto.randomUUID(),createdAt:now(),questions,partialAnswers:[]};
+  session.rounds.push(round);session.pendingRoundId=round.id;delete session.draft;
+  if(request.text!==undefined)session.notes=textValue(request.text);
+}
+function stageAnswers(session,request,who){
+  const Who=who[0].toUpperCase()+who.slice(1),round=session.rounds.find(r=>r.id===request.roundId);
+  if(!round||session.pendingRoundId!==round.id)fail(`${Who} question round is stale.`);
+  if(!Array.isArray(request.answers)||!request.answers.length)fail(`At least one explicit ${who} answer is required.`);
+  const staged=new Map((round.partialAnswers||[]).map(a=>[a.id,a])),ids=new Set();
+  for(const answer of request.answers){
+    if(!round.questions.some(q=>q.id===answer.id)||ids.has(answer.id))fail(`${Who} answers require unique matching question IDs.`);
+    ids.add(answer.id);staged.set(answer.id,{id:answer.id,answer:textValue(answer.answer)});
+  }
+  round.partialAnswers=Array.from(staged.values());delete session.draft;
 }
 function missingReviewAnswers(session){
   return session.rounds.some(r=>r.questions.some(q=>!r.partialAnswers?.some(a=>a.id===q.id)));
@@ -221,12 +277,12 @@ export function resolveTransport(root,options={}){
 }
 async function runCodex(root,dir,state,request,options,persist) {
   const writing=['implement','fix'].includes(request.action),command=resolveCommand(root,options),transport=resolveTransport(root,options);
-  const schema=PLANNING.includes(request.action)?planningSchema:writing?executionSchema:null;
+  const schema=PLANNING.includes(request.action)?planningSchema:writing?executionSchema:request.action==='codex-review-plan'?planReviewSchema:null;
   const args=[...command.slice(1),'exec','--sandbox',writing?'workspace-write':'read-only','-c','approval_policy="never"','--json'];
-  if(schema)args.push('--output-schema',artifact(dir,writing?'execution.schema.json':'planning.schema.json',JSON.stringify(schema)));
+  if(schema)args.push('--output-schema',artifact(dir,writing?'execution.schema.json':request.action==='codex-review-plan'?'plan-review.schema.json':'planning.schema.json',JSON.stringify(schema)));
   const saved=request.rebuildThread?null:state.threadId;
   if(saved)args.push('resume',saved,'--skip-git-repo-check');
-  else if(request.action!=='new'&&!request.rebuildThread)fail('No saved Codex thread UUID. Create a new task explicitly; no automatic fresh fallback.');
+  else if(request.action!=='new'&&!request.rebuildThread&&!freshThreadAllowed(state,request.action))fail('No saved Codex thread UUID. Create a new task explicitly; no automatic fresh fallback.');
   else args.push('--skip-git-repo-check');
   args.push('-');
   const runId=crypto.randomUUID(),log=path.join(dir,`${runId}.events.jsonl`),stderrFile=path.join(dir,`${runId}.stderr.txt`);
@@ -317,6 +373,9 @@ async function runCodex(root,dir,state,request,options,persist) {
   }
   state.lastRun.result=artifact(dir,`${runId}.result.md`,result);persist();return result;
 }
+// A task Claude planned has no Codex conversation until Codex first works on it.
+const CLAUDE_FRESH=['plan','revise-plan','codex-review-plan','implement'];
+const freshThreadAllowed=(state,action)=>!state.threadId&&state.planner==='claude'&&CLAUDE_FRESH.includes(action);
 // Codex refused to open the conversation, so this action never started: put the task back as it was before it.
 function undoLostRun(state,before,action){
   const {lastRun,runHistory,updatedAt}=state;
@@ -345,7 +404,7 @@ function rebuildContext(dir,state){
   const inputs=earlierInputs(dir,state);
   if(inputs.length)parts.push(`Earlier user input, oldest first (history; the saved plan, answers and reviews decide what still applies):\n${JSON.stringify(inputs)}`);
   for(const [kind,review] of Object.entries(state.reviews||{}))try{
-    const text=read(review.file);if(hash(text)===review.hash)parts.push(`Claude ${kind==='code'?'result':kind} review (version ${review.version}):\n${text}`);
+    const text=read(review.file);if(hash(text)===review.hash)parts.push(`${review.reviewer==='codex'?'Codex':'Claude'} ${kind==='code'?'result':kind} review (version ${review.version}):\n${text}`);
   }catch{/* an unreadable report is left out */}
   return `\n${parts.join('\n\n')}`;
 }
@@ -390,7 +449,7 @@ function validReview(root,dir,state,kind) {
   const review=state.reviews?.[kind];
   if(!review)fail(`A current ${kind} review is required.`);
   if(review.evidenceFormat!=='files-v1')fail(`旧评审需重新运行 /claude-review-${kind==='code'?'result':'plan'}，历史记录保留。`);
-  if(review.version!==sourceVersion(root,dir,state,kind))fail(`The ${kind} review is stale. Run /claude-review-${kind==='code'?'result':kind} again.${staleDetail(root,review)}`);
+  if(review.version!==sourceVersion(root,dir,state,kind))fail(`The ${kind} review is stale. Run ${kind==='code'?'/claude-review-result':planReviewCommand(state)} again.${staleDetail(root,review)}`);
   if(hash(read(review.file))!==review.hash)fail('Saved review was modified. Run a fresh review.');
   checkReviewEvidence(root,review);
   return review;
@@ -405,16 +464,16 @@ function planExecuted(state,version){
 }
 // Whether the recommended plan review happened. 'none' and 'stale' are the only states a user may skip.
 function planReviewState(root,dir,state,getSnapshot=snapshotReader(root)){
-  if(state.reviewSession)return {planReview:'in-progress'};
+  if(state.reviewSession||state.authoring)return {planReview:'in-progress'};
   let version;
   try{requireContract(state);version=planVersion(dir,state);}catch(e){return {planReview:'unavailable',planReviewNote:e.message};}
   if(state.reviewedRevision!==state.plan.revision)return planExecuted(state,version)
-    ?{planReview:'unavailable',planReviewNote:'当前计划已执行过。请用 /claude-review-result、/chatgpt-fix，或用 /chatgpt-plan 更新计划；需要重新执行同一计划时先 /claude-review-plan。'}:{planReview:'none'};
+    ?{planReview:'unavailable',planReviewNote:`当前计划已执行过。请用 /claude-review-result、/chatgpt-fix，或用 /chatgpt-plan 更新计划；需要重新执行同一计划时先 ${planReviewCommand(state)}。`}:{planReview:'none'};
   if(state.implementation?.planVersion===version)return {planReview:'current'}; // approve decides, as always
   const review=state.revisionReview||state.reviews?.plan;
   try{
     if(!review||review.evidenceFormat!=='files-v1'||hash(read(review.file))!==review.hash||!state.revisionReview&&review.version!==version){
-      return {planReview:'unavailable',planReviewNote:'已保存的计划评审不可用（was modified 或为旧格式），请重新 /claude-review-plan。'};
+      return {planReview:'unavailable',planReviewNote:`已保存的计划评审不可用（was modified 或为旧格式），请重新 ${planReviewCommand(state)}。`};
     }
     const current=getSnapshot();
     return review.repositoryHash===current.hash?{planReview:'current'}:{planReview:'stale',planReviewNote:`评审后项目文件有变化。${staleDetail(root,review,current)}`};
@@ -473,12 +532,13 @@ function status(dir,state) {
   const contract=state.plan?.contract;
   const planCurrent=!!state.plan&&state.plan.revision===state.revision&&state.planningStatus==='ready'&&!state.pendingQuestions;
   const executionSummary={task:state.task,revision:state.plan?.revision??null,migrationRequired:!contract||!state.plan?.contractHash,
-    planCurrent,
+    planCurrent,planner:state.planner||'codex',planAuthor:state.plan?(state.plan.author||'codex'):null,planReviewer:state.reviews?.plan?.reviewer||null,recommendedPlanReview:planReviewCommand(state),
     ...(contract?{...contract,kindLabel:kindLabels[contract.kind]}:{}),delivery:state.delivery||null,
     deliveryMatchesCurrentPlan:planCurrent&&!!state.delivery&&state.delivery.planVersion===`${state.plan?.revision}:${state.plan?.hash}:${state.plan?.contractHash}`};
   return {...state,executionSummary,snapshotStatus:snapshotStatus(state.projectRoot,state),paths:{runtime:path.dirname(path.dirname(dir)),task:dir,plan:path.join(dir,'plan.md'),questions:path.join(dir,'questions.md'),reviewQuestions:path.join(dir,'review-questions.md')},modelSelection:MODEL_SELECTION};
 }
-const ACTIONS=['new','plan','record-answers','answer','clarify','revise-plan','approve','implement','fix','resume','status','use','review-start','review-questions','review-record-answers','review-save','doctor','unlock'];
+const ACTIONS=['new','plan','record-answers','answer','clarify','revise-plan','approve','implement','fix','resume','status','use','review-start','review-questions','review-record-answers','review-save','doctor','unlock',
+  'plan-start','plan-questions','plan-record-answers','plan-save','plan-cancel','codex-review-plan'];
 
 export async function execute(projectRoot,request,options={}) {
   const root=fs.realpathSync(projectRoot);
@@ -523,6 +583,7 @@ export async function execute(projectRoot,request,options={}) {
   if(request.action==='use')taskId(request.task);
   if(request.action==='new'){
     textValue(request.text);
+    if(request.planner!==undefined&&request.planner!=='claude')fail('planner 只能为 claude（省略时由 Codex 规划）。');
     if(request.task!==undefined)taskId(request.task); // Legacy explicit-ID calls remain supported.
     if(request.requestId!==undefined){
       if(typeof request.requestId!=='string'||!UUID.test(request.requestId))fail('requestId must be a creation-request UUID.');
@@ -582,6 +643,10 @@ export async function execute(projectRoot,request,options={}) {
       if(fs.existsSync(dir))fail('Task already exists. Choose a new task ID or use the existing task.');
       directory(dir);state={schema:1,projectRoot:root,task:id,threadId:null,phase:'planning',createdAt:now(),revision:0,reviews:{},requirements:request.text};
       if(creation)state.creation=creation;
+      if(request.planner==='claude'){
+        state.planner='claude';state.phase='claude-planning';
+        state.authoring={ticket:crypto.randomUUID(),kind:'new',baseVersion:authoringBase(state),startedAt:now(),rounds:[],focus:null,previousPhase:'created'};
+      }
     }else {
       if(!fs.existsSync(stateFile))fail(creationReplay?`任务 ${id} 的创建标识已保留但状态缺失；停止重复创建，请检查保存失败原因。`:'Task does not exist. Start with /chatgpt-new <需求描述>.');
       if(request.action!=='status')directory(dir);state=json(stateFile);
@@ -600,7 +665,8 @@ export async function execute(projectRoot,request,options={}) {
         let stale=false,sourceError;
         try{stale=state.reviewSession.version!==sourceVersion(root,dir,state,state.reviewSession.kind,getSnapshot);if(stale)sourceError=staleDetail(root,state.reviewSession,getSnapshot()).trim()||undefined;checkReviewEvidence(root,state.reviewSession,getSnapshot);}catch(e){stale=true;sourceError=e.message;}
         result.reviewSession={...state.reviewSession,stale,sourceError};result.resumeOwner='claude';
-      }else if(state.pendingQuestions)result.resumeOwner='codex-questions';
+      }else if(state.authoring){result.authoring={...state.authoring,stale:state.authoring.baseVersion!==authoringBase(state)};result.resumeOwner='claude-plan';}
+      else if(state.pendingQuestions)result.resumeOwner='codex-questions';
       else result.resumeOwner='codex';
       return result;
     };
@@ -618,7 +684,7 @@ export async function execute(projectRoot,request,options={}) {
       if(request.action!=='resume'||request.rebuildThread!==true)fail('rebuildThread 只能为 true，只用于 resume，且只能来自用户的明确选择。');
       if(!state.threadId||state.threadLost?.threadId!==state.threadId)fail('没有会话丢失记录，不重建 Codex 会话。请用 /chatgpt-resume 正常恢复。');
     }
-    if(request.action==='resume'&&!request.rebuildThread&&(state.reviewSession||state.pendingQuestions))return view();
+    if(request.action==='resume'&&!request.rebuildThread&&(state.reviewSession||state.authoring||state.pendingQuestions))return view();
     if(creationReplay){
       if(!binding){writeBinding(id);save(activeFile,{task:id});}
       return {...view(),sessionBinding:readBinding(),creationReplay:true,bindingUnchanged:!!binding,
@@ -630,11 +696,16 @@ export async function execute(projectRoot,request,options={}) {
       save(activeFile,{task:id}); // Compatibility metadata only; never used to select a task.
     }
     if(request.action==='use')return view();
+    if(request.action==='new'&&request.planner==='claude')return {...view(),ticket:state.authoring.ticket,kind:'new'};
+    if(request.action==='resume'&&!state.threadId&&state.planner==='claude')
+      return {...view(),note:'此任务由 Claude 规划，尚未建立 Codex 会话，没有可恢复的 Codex 内容。下一次 /chatgpt-review-plan、/chatgpt-implement 或 /chatgpt-plan 会新建会话。'};
     if(request.action==='resume'&&!state.threadId){
       const text=recoverInitialPlanning(dir,state);persist();
       request={...request,action:'new',trigger:'resume',text};
     }
-    if(state.reviewSession&&['approve','implement','revise-plan','fix','clarify'].includes(request.action))fail('An unfinished Claude review must be completed first. Use /chatgpt-resume for its questions or saved draft.');
+    if(state.reviewSession&&['approve','implement','revise-plan','fix','clarify','codex-review-plan','plan-start'].includes(request.action))fail('An unfinished Claude review must be completed first. Use /chatgpt-resume for its questions or saved draft.');
+    if(state.authoring&&['approve','implement','fix','clarify','codex-review-plan','review-start'].includes(request.action))
+      fail('有未完成的 Claude 规划，请先用 /chatgpt-resume 完成；需要放弃时由用户明确要求。');
     if(request.action==='record-answers'){
       const pending=state.pendingQuestions;
       if(!pending||pending.id!==request.roundId||pending.answers)fail('No editable pending question round; record is stale or already submitted.');
@@ -677,24 +748,11 @@ export async function execute(projectRoot,request,options={}) {
       return session;
     };
     if(request.action==='review-questions'){
-      const session=currentReview();
-      if(missingReviewAnswers(session))fail('Answer the current review questions before adding another round.');
-      const questions=parsePlanning(JSON.stringify({status:'needs_questions',plan:'',questions:request.questions})).questions;
-      const round={id:crypto.randomUUID(),createdAt:now(),questions,partialAnswers:[]};
-      session.rounds.push(round);session.pendingRoundId=round.id;delete session.draft;
-      if(request.text!==undefined)session.notes=textValue(request.text);
+      addRound(currentReview(),request,'review');
       persist();saveReviewQuestions(dir,state);return view();
     }
     if(request.action==='review-record-answers'){
-      const session=currentReview(),round=session.rounds.find(r=>r.id===request.roundId);
-      if(!round||session.pendingRoundId!==round.id)fail('Review question round is stale.');
-      if(!Array.isArray(request.answers)||!request.answers.length)fail('At least one explicit review answer is required.');
-      const staged=new Map((round.partialAnswers||[]).map(a=>[a.id,a])),ids=new Set();
-      for(const answer of request.answers){
-        if(!round.questions.some(q=>q.id===answer.id)||ids.has(answer.id))fail('Review answers require unique matching question IDs.');
-        ids.add(answer.id);staged.set(answer.id,{id:answer.id,answer:textValue(answer.answer)});
-      }
-      round.partialAnswers=Array.from(staged.values());delete session.draft;
+      stageAnswers(currentReview(),request,'review');
       persist();saveReviewQuestions(dir,state);return view();
     }
     if(request.action==='review-save') {
@@ -717,6 +775,72 @@ export async function execute(projectRoot,request,options={}) {
       else state.phase='reviewed-code';
       archiveReview(state,'completed');persist();return completedReviewView();
     }
+    const currentAuthoring=()=>{
+      const a=state.authoring;
+      if(!a||a.ticket!==request.ticket)fail('Claude 规划票据已失效。请用 /chatgpt-resume 查看当前规划，或重新开始。');
+      if(a.baseVersion!==authoringBase(state))fail('Claude 规划开始后计划已被其他操作改变。请重新开始 Claude 规划；已保存的回答只作历史。');
+      return a;
+    };
+    // The result-review judgement, as Codex planning makes it (see REVIEW_GAPS).
+    const resultGap=()=>{if(!state.delivery)return null;const {resultReview}=resultReviewState(root,dir,state);return resultReview==='unavailable'?reviewBeforePlanning(state):resultReview;};
+    if(request.action==='plan-start'){
+      if(!['plan','revise'].includes(request.kind))fail('plan-start 的 kind 必须为 plan 或 revise。');
+      if(state.pendingQuestions)fail('Codex 的规划问题尚未回答。请先用 /chatgpt-resume 继续，不能丢弃未答问题。');
+      const focus=request.text===undefined?null:textValue(request.text);
+      if(state.authoring){
+        const a=state.authoring;
+        if(a.kind!==request.kind&&!(a.kind==='new'&&request.kind==='plan'))fail('另一种 Claude 规划尚未完成。请先用 /chatgpt-resume 完成，或由用户明确放弃。');
+        if(a.baseVersion===authoringBase(state)){
+          if(focus!==null&&focus!==a.focus){a.focus=focus;delete a.draft;persist();}
+          return {...view(),ticket:a.ticket,kind:a.kind};
+        }
+        archiveAuthoring(state,'superseded-source-changed');
+      }
+      const sourceReview=request.kind==='revise'?validReview(root,dir,state,'plan'):null;
+      const gap=request.kind==='plan'&&REVIEW_GAPS[resultGap()];
+      state.authoring={ticket:crypto.randomUUID(),kind:request.kind,baseVersion:authoringBase(state),startedAt:now(),rounds:[],focus,previousPhase:state.phase,...(sourceReview?{sourceReview}:{})};
+      state.phase='claude-planning';persist();
+      return {...view(),ticket:state.authoring.ticket,kind:request.kind,...(sourceReview?{sourceReviewFile:sourceReview.file}:{}),
+        ...(gap?{reviewNotice:`${gap.notice}，保存新计划后不能再单独评审；规划时请核对未完成项与遗留问题。`}:{})};
+    }
+    if(request.action==='plan-questions'){addRound(currentAuthoring(),request,'planning');persist();return view();}
+    if(request.action==='plan-record-answers'){stageAnswers(currentAuthoring(),request,'planning');persist();return view();}
+    if(request.action==='plan-cancel'){
+      const a=state.authoring;
+      if(!a||a.ticket!==request.ticket)fail('没有匹配的未完成 Claude 规划。');
+      archiveAuthoring(state,'abandoned');state.phase=a.previousPhase||'created';persist();return view();
+    }
+    if(request.action==='plan-save'){
+      if(request.model!=null&&typeof request.model!=='string')fail('Plan model attribution must be a string or null.');
+      const done=(state.authoringHistory||[]).find(h=>h.ticket===request.ticket&&h.outcome==='completed');
+      if(!state.authoring&&done){
+        if(request.plan!==undefined&&hash(textValue(request.plan))!==done.planTextHash)fail('该 Claude 规划已保存，重试内容不同。需要修改时请开始新的 Claude 规划。');
+        return {...view(),planSaved:true};
+      }
+      const a=currentAuthoring();
+      if(missingReviewAnswers(a))fail('Answer all Claude planning questions before saving the plan.');
+      const draft=request.plan===undefined&&request.contract===undefined?a.draft:{plan:request.plan,contract:request.contract,model:request.model?.trim()||null};
+      if(!draft)fail('No saved plan draft. Supply plan and contract.');
+      const parsed=parsePlanning(JSON.stringify({status:'ready',plan:draft.plan,questions:[],contract:draft.contract}));
+      a.draft=draft;persist(); // Durable outbox before plan.md changes; a retry without plan/contract reuses it.
+      if(state.delivery)state.delivery.reviewAtPlanning=resultGap();
+      const previousContractHash=state.plan?.contractHash,contractHash=hash(JSON.stringify(parsed.contract)),plan=renderPlan(parsed.contract,parsed.plan);
+      const source=a.kind==='revise'?a.sourceReview:null;
+      let sourceIntact=false;
+      if(source&&state.reviews?.plan?.ticket===source.ticket)try{sourceIntact=hash(read(source.file))===source.hash;}catch{/* a missing report is not carried over */}
+      state.revision++;artifact(dir,'plan.md',plan);
+      state.plan={revision:state.revision,hash:hash(plan),contract:parsed.contract,contractHash,author:'claude',model:draft.model||null};
+      Object.assign(state,{planningStatus:'ready',pendingQuestions:null,approved:null,reviewedRevision:null,revisionReview:null,ticket:null,phase:'planned'});
+      // Same rule as a Codex revision: an unchanged goal keeps the review it answered.
+      if(sourceIntact&&previousContractHash===contractHash){state.reviewedRevision=state.revision;state.revisionReview=source;}
+      if(a.rounds.length){
+        state.questionHistory=state.questionHistory||[];
+        for(const r of a.rounds)state.questionHistory.push({id:r.id,createdAt:r.createdAt,revision:state.revision,askedBy:'claude',questions:r.questions,answers:r.partialAnswers,answeredAt:now()});
+      }
+      archiveAuthoring(state,'completed',{revision:state.revision,planTextHash:hash(parsed.plan)});
+      persist();saveQuestions(dir,state);
+      return {...view(),planSaved:true,...(state.revisionReview?{reviewCarriedOver:true}:{})};
+    }
     if(request.action==='approve') {
       requireContract(state);
       const version=planVersion(dir,state);
@@ -732,7 +856,7 @@ export async function execute(projectRoot,request,options={}) {
       else validReview(root,dir,state,'plan');
       state.approved={version,evidenceFormat:'files-v1',at:now()};state.phase='approved';persist();return view();
     }
-    let instruction='',context='',revisionReview,answeredRound,reviewNotice;
+    let instruction='',context='',revisionReview,answeredRound,reviewNotice,codexReview;
     const previousContractHash=state.plan?.contractHash;
     if(request.action==='answer'){
       const pending=state.pendingQuestions;
@@ -753,7 +877,7 @@ export async function execute(projectRoot,request,options={}) {
     }else if(PLANNING.includes(request.action)&&state.pendingQuestions)fail('Pending questions exist. Submit answer or resume; do not discard unanswered questions.');
     const before=structuredClone(state);
     if(PLANNING.includes(request.action)) {
-      if(request.action==='revise-plan'){revisionReview=validReview(root,dir,state,'plan');context=`\nClaude plan review:\n${read(revisionReview.file)}`;}
+      if(request.action==='revise-plan'){revisionReview=validReview(root,dir,state,'plan');context=`\n${revisionReview.reviewer==='codex'?'Codex':'Claude'} plan review:\n${read(revisionReview.file)}`;}
       if(state.delivery){
         const {resultReview}=resultReviewState(root,dir,state);
         const judged=resultReview==='unavailable'?reviewBeforePlanning(state):resultReview;
@@ -767,7 +891,15 @@ export async function execute(projectRoot,request,options={}) {
       instruction='Inspect the project directory read-only (Git is optional) and plan in Chinese. Do not implement. Return ONLY JSON matching the supplied schema. If material requirements or tradeoffs need user input, set status=needs_questions, ask 1-3 focused questions with unique IDs, short headers (at most 12 characters), multiSelect boolean and 2-4 meaningful options (label and description); use options=[] only for genuinely open text. Do not invent Other options (Claude UI supplies it), do not ask permission to proceed in these requirement cards, and never treat absent answers as consent. The current Claude session will ask the user and return exact answers. plan may contain a clearly labelled draft or be empty while clarification is pending. Only when requirements are sufficient return status=ready, questions=[] and a full plan including requirements, decisions, acceptance criteria, scope, files, steps and verification. Do not force unnecessary questions when the brief is already clear. For review-guided revisions validate findings and explain accepted/rejected items; ask about material new scope choices.';
       instruction+=' The read-only restriction applies to THIS planning turn only. The saved plan describes FUTURE execution: never copy temporary instructions such as "本轮仅修订计划" into execution constraints. Return a separate contract with kind investigate (report only, no business-file edits), modify (code/documents/configuration or other artifacts), or investigate-and-modify. Include uniquely identified deliverables, allowedChanges, excludedChanges and acceptanceCriteria. Keep deliverable IDs stable across revisions when their meaning is unchanged. If "排查问题" or similar wording leaves report versus repair ambiguous, ask using the existing questions protocol; do not infer repair authority or silently narrow an explicit repair request to a report. Use existing original requirements and exact saved decisions before asking again. Explicit report-only or repair requests need no redundant scope confirmation. While undecided return contract:null and status:needs_questions. Only ready with a complete contract. The runner renders the goal header; plan contains execution details, not a duplicated goal header. Resolve contradictions through questions or revision; never silently override constraints. Previously saved plans lacking a contract need a newly reviewed plan, not inferred authorization.';
       if(state.reviewSession){archiveReview(state,'superseded-planning');persist();saveReviewQuestions(dir,state);}
+      if(state.authoring)archiveAuthoring(state,'superseded-planning');
       state.revision++;state.approved=null;state.reviewedRevision=null;state.revisionReview=null;state.ticket=null;state.phase='planning';
+    }else if(request.action==='codex-review-plan'){
+      requireContract(state);
+      const version=planVersion(dir,state),ticket=crypto.randomUUID(),evidence=snapshot(root,dir);
+      codexReview={ticket,version,repositoryHash:evidence.hash,snapshotFile:artifact(dir,`${ticket}.snapshot.json`,JSON.stringify(evidence,null,2))};
+      instruction='Review the saved plan read-only as an independent reviewer, in Chinese. Do not modify files, do not implement, and do not rewrite the plan yourself. Inspect relevant project files to validate its assumptions. Check the original requirements and saved decisions, feasibility, project constraints, scope against the structured contract, explicit exclusions, acceptance criteria, missing decisions, risks and verification appropriate to each artifact. A planning-time read-only restriction copied into execution constraints, or plan text that conflicts with the contract, is a blocker. Return ONLY JSON matching the supplied schema: verdict approve (ready to implement as written), revise (should be revised first) or blocked (needs a user decision); findings with stable IDs, severity blocker/major/minor, plan section, the problem and a concrete suggestion; openQuestions only the user can decide; and a full Markdown report. Do not invent requirements: label new ideas as optional suggestions, not findings. Use runtime questions only when you cannot review without the user.';
+      context=`\nStructured delivery contract:\n${JSON.stringify(state.plan.contract)}\nPlan under review (written by ${state.plan.author==='claude'?'Claude':'Codex'}):\n${read(path.join(dir,'plan.md'))}${state.requirements?`\nOriginal user requirements:\n${state.requirements}`:''}`;
+      state.ticket=null;
     }else if(request.action==='implement') {
       requireContract(state);
       if(!state.approved||state.approved.version!==planVersion(dir,state))fail('Explicit approval of the current reviewed plan is required.');
@@ -801,6 +933,8 @@ export async function execute(projectRoot,request,options={}) {
       context=`\nStructured delivery contract (same approved version):\n${JSON.stringify(state.plan.contract)}${context}`;
       instruction+=' This is the EXECUTION phase: previous planning-phase restrictions apply only to their original planning turn, not to this execution. Honor the approved final delivery contract and explicit exclusions. If plan text conflicts with that contract, do not choose or expand scope: report blocked with the conflict for Claude to clarify. Return ONLY JSON matching the execution schema: outcome completed/partial/blocked; exactly one result per contract deliverable ID (include unresolved items, and preserve already fulfilled items when fixing selected findings), evidence for each completed item, actual verification with evidence or blockage reasons, unfinished items, changeExplanation (especially when no changes are needed), and a full Chinese Markdown report. A report alone does not fulfill a modification deliverable. Do not claim completed when required verification is blocked or failed. Existing correct behavior may need no changes only with concrete verification evidence. These are self-reported results pending independent Claude review.';
     }
+    // A first Codex conversation for a task Claude planned starts from the user's original words.
+    if(freshThreadAllowed(state,request.action)&&request.action!=='codex-review-plan'&&state.requirements)context+=`\nOriginal user requirements:\n${state.requirements}`;
     persist();
     if(state.questionHistory?.length)context+=`\nSaved clarification history:\n${JSON.stringify(state.questionHistory)}`;
     const runtimeQuestions=runtimeHistory(dir);
@@ -836,6 +970,16 @@ export async function execute(projectRoot,request,options={}) {
       }
       persist();saveQuestions(dir,state);
     }else if(['implement','fix'].includes(request.action))state.phase='needs-code-review';
+    else if(request.action==='codex-review-plan'){
+      let review;try{review=parsePlanReview(result);}catch(e){state.lastRun.status='failed';state.lastRun.error=e.message;persist();throw e;}
+      const content=renderPlanReview(review),file=artifact(dir,`${codexReview.ticket}.plan-review.md`,content);
+      state.reviews=state.reviews||{};
+      state.reviews.plan={file,hash:hash(content),textHash:hash(review.report),ticket:codexReview.ticket,version:codexReview.version,kind:'plan',reviewer:'codex',model:state.lastRun.model||null,at:now(),
+        evidenceFormat:'files-v1',repositoryHash:codexReview.repositoryHash,snapshotFile:codexReview.snapshotFile,verdict:review.verdict,runId:state.lastRun.id};
+      Object.assign(state,{reviewedRevision:state.plan.revision,revisionReview:null,approved:null,ticket:null,phase:'reviewed-plan'});
+      persist();
+      return {...view(),codexPlanReview:{file,verdict:review.verdict,summary:review.summary,findings:review.findings.length,openQuestions:review.openQuestions.length}};
+    }
     persist();return {...view(),result,...(reviewNotice?{reviewNotice}:{})};
   }finally {
     // A lock that stays must not replace the result; the next command reports it and points to unlock.
@@ -843,7 +987,7 @@ export async function execute(projectRoot,request,options={}) {
   }
 }
 // Actions that call Codex run in a detached worker, so Claude's tool timeout never ends them.
-const SUPERVISED=['new','plan','answer','revise-plan','clarify','implement','fix','resume'];
+const SUPERVISED=['new','plan','answer','revise-plan','clarify','implement','fix','resume','codex-review-plan'];
 function boundTask(root,sessionId){
   for(const name of ['.chatgpt-workflow','.astra-workflow']){
     const file=path.join(root,name,'sessions',`${hash(sessionId)}.json`);
@@ -885,7 +1029,7 @@ export async function dispatch(root,request,{maxWaitMs=540000}={}){
     const result=await execute(root,request),run=current();
     return {...result,...(run?{activeRun:runSummary(run)}:{}),archiveWarnings:runArchiveWarnings(root,boundTask(root,session))};
   }
-  if(!SUPERVISED.includes(action))return execute(root,request);
+  if(!SUPERVISED.includes(action)||action==='new'&&request.planner==='claude')return execute(root,request);
   // Without a session execute() reports the error; nothing is started.
   if(!session)return execute(root,request);
   const active=current({adopt:action==='resume'});

@@ -4,7 +4,7 @@
 
 从本次 `status` 返回值说明当前 Claude 会话绑定、任务ID、阶段、Codex UUID、待答问题和报告草稿。字段没有返回就说明未知，不根据聊天记忆补造状态。原始错误可原样附上，原因与下一步用中文解释。
 
-同时展示 `executionSummary` 的任务类型、最终交付物、允许修改范围、排除范围和验收要求。目标缺失显示“旧计划待补齐交付目标”，不是默认只读或默认允许修改。待答问题优先 `/chatgpt-resume`；无未决问答的旧目标用 `/chatgpt-plan` 补齐并重新评审，status 自身不迁移。
+同时展示 `executionSummary` 的计划作者（`planAuthor`：`claude` 或 `codex`）、任务类型、最终交付物、允许修改范围、排除范围和验收要求。目标缺失显示“旧计划待补齐交付目标”，不是默认只读或默认允许修改。待答问题优先 `/chatgpt-resume`；无未决问答的旧目标用 `/chatgpt-plan` 补齐并重新评审，status 自身不迁移。
 
 存在 `delivery` 时单独列出“Codex 调用状态 / 自报交付情况 / 成果待核实状态”：`completed` 自报已完成、`partial` 部分完成、`blocked` 受阻，均不代表验收通过。`invalid-result` 显示“结果待核对”，读取原始输出并建议 `/claude-review-result`，不重跑。`execution-failed` 检查错误和实际改动。展示未完成事项和 warnings；无变化的修改任务同时展示解释和验证依据。`deliveryMatchesCurrentPlan=false` 时标注是历史执行结果，不据此宣布当前计划完成。`lastRun` 可能是只读回顾，不能替代 delivery 的执行记录。
 
@@ -22,9 +22,11 @@
 | selectionRequired | 当前会话尚未绑定；列出已有任务，明确选择后使用 `/chatgpt-use <任务ID>`，或 `/chatgpt-new <需求描述>` 自动命名新任务 |
 | 未完成 reviewSession（含过期、问题或草稿） | 评审待继续；建议 `/chatgpt-resume`。过期需重新检查，草稿需保存成功后才算完成 |
 | pendingQuestions | 规划问答待继续或答案待发送；建议 `/chatgpt-resume` |
+| authoring（阶段 claude-planning） | Claude 规划未完成（问答、草稿或待写计划）；建议 `/chatgpt-resume`。`authoring.stale` 表示期间计划被改动，需重新开始 |
+| created | 任务已创建、尚无计划（Claude 规划已放弃）；用 `/claude-plan` 或 `/chatgpt-plan` 规划 |
 | lastRun.status 为 running / failed | 执行中：等待原进程；失败：检查错误及实际改动，不直接重跑。只在确认进程结束且遗留锁时建议 `/chatgpt-unlock` |
-| planned | 计划已生成；若尚未评审，并列给出 `/claude-review-plan`（推荐）和 `/chatgpt-implement`（会先询问评审或跳过）。如有本轮有效评审修订关系且无新增范围，展示修订后可建议 `/chatgpt-implement` |
-| reviewed-plan | 计划已评审；有修改建议时用 `/chatgpt-revise-plan`，否则确认范围后可用 `/chatgpt-implement` |
+| planned | 计划已生成；若尚未评审，并列给出 `recommendedPlanReview`（计划由 Claude 编写时为 `/chatgpt-review-plan`，否则 `/claude-review-plan`，推荐）和 `/chatgpt-implement`（会先询问评审或跳过）。如有本轮有效评审修订关系且无新增范围，展示修订后可建议 `/chatgpt-implement` |
+| reviewed-plan | 计划已评审（`planReviewer`：`codex` 为 ChatGPT 评审，`claude-code` 为 Claude 评审）；有修改建议时，计划由 Claude 编写用 `/claude-revise-plan`，由 Codex 编写用 `/chatgpt-revise-plan`；否则确认范围后可用 `/chatgpt-implement` |
 | approved | 当前计划已批准；使用 `/chatgpt-implement`；若误在 Plan，先手动切换 |
 | needs-code-review | 实现或修复已返回，成果待评审；建议 `/claude-review-result`。也可直接 `/chatgpt-plan`（会先询问评审或跳过） |
 | reviewed-code | 成果评审已保存，是否有效看 `resultReview`。`current` 且有确认缺陷时建议 `/chatgpt-fix`；`stale` 或 `invalid` 建议重新 `/claude-review-result`；仅环境受阻则恢复环境后重评；无待改项则无需修复 |
@@ -35,7 +37,7 @@
 
 必要时只读查看返回路径中的计划和评审以决定建议。状态显示不替代 runner 的有效性门禁；只有脚本执行时校验通过才能进入依赖阶段。部分评审不是验收完成；包含未验证范围时必须在状态说明中明确指出。
 
-`/chatgpt` 显示完整 14 项命令表和括号说明，再突出适用的下一步。`/chatgpt-status` 仅需状态及下一步。两者均不调用 Codex、不启动浏览器或问答、不选择任务、不批准、不实施。
+`/chatgpt` 显示完整 18 项命令表和括号说明，再突出适用的下一步。`/chatgpt-status` 仅需状态及下一步。两者均不调用 Codex、不启动浏览器或问答、不选择任务、不批准、不实施。
 
 ## 文件快照状态
 

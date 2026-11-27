@@ -12,7 +12,8 @@ const UUID_COMMAND='node -e "console.log(require(\'node:crypto\').randomUUID())"
 const decide=(permissionDecision,permissionDecisionReason,extra={})=>({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision,permissionDecisionReason,...extra}});
 const SELF_GATED=new Set(['implement','fix','approve']); // need the user's own slash command for this turn
 const INTERNAL=new Set(['new','plan','revise-plan','answer','clarify','record-answers','resume','status','use','doctor','wait','cancel',
-  'approval-decline','user-input-answer','user-input-record-answers','review-start','review-questions','review-record-answers','review-save']);
+  'approval-decline','user-input-answer','user-input-record-answers','review-start','review-questions','review-record-answers','review-save',
+  'plan-start','plan-questions','plan-record-answers','plan-save','plan-cancel','codex-review-plan']);
 
 // The whole command must be one runner call: no chaining, redirection, substitution or line breaks.
 function parse(command){
